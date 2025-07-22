@@ -344,11 +344,12 @@ deploy_to_cloud_run() {
     log_info "Health check: $SERVICE_URL/health"
     
     if [ "$WEB_ONLY" != true ]; then
-        log_warning "Note: Cloud Run has limitations for SIP/UDP traffic."
-        log_info "For full SIP functionality, consider using:"
-        log_info "  • Google Compute Engine with the Docker deployment"
-        log_info "  • Google Kubernetes Engine (GKE)"
-        log_info "  • Your local Docker setup with proper port forwarding"
+        log_info "Full SIP functionality deployed to Cloud Run."
+        log_warning "Note: Inbound RTP requires external load balancer or ingress for UDP."
+        log_info "For inbound calls, consider:"
+        log_info "  • Google Compute Engine with static IP and port forwarding"
+        log_info "  • Load Balancer with UDP support for inbound RTP"
+        log_info "  • Your local Docker setup handles inbound calls perfectly"
     fi
 }
 
