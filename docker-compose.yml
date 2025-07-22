@@ -4,38 +4,35 @@ services:
   callie-caller:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.cloudrun-full
       args:
         VERSION: ${VERSION:-1.0.0}
         BUILD_DATE: ${BUILD_DATE}
         VCS_REF: ${VCS_REF}
         BUILD_NUMBER: ${BUILD_NUMBER}
-    image: callie-caller:${VERSION:-latest}
+    image: callie-caller-full:${VERSION:-latest}
     container_name: callie-caller
     restart: unless-stopped
     
-    # Environment configuration
+    # Load environment from file
+    env_file:
+      - docker-secrets.env
+    
+    # Additional environment configuration
     environment:
-      # SIP Configuration (from .env file)
-      - ZOHO_SIP_DOMAIN=${ZOHO_SIP_DOMAIN}
-      - ZOHO_SIP_USERNAME=${ZOHO_SIP_USERNAME}
-      - ZOHO_SIP_PASSWORD=${ZOHO_SIP_PASSWORD}
-      
-      # Google AI Configuration
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      
-      # Optional configuration
-      - USE_UPNP=${USE_UPNP:-true}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - SERVER_PORT=${SERVER_PORT:-8080}
-      
       # Container-specific settings
       - PYTHONUNBUFFERED=1
+      # Force disable UPnP in containers
+      - USE_UPNP=false
+      # Set container-friendly networking
+      - CONTAINER_MODE=true
     
-    # Port mapping
+    # Port mapping - critical for SIP/RTP
     ports:
       - "${SERVER_PORT:-8080}:8080"
-      # RTP port range for audio
+      # SIP signaling port
+      - "5060:5060/udp"
+      # RTP port range for audio (wider range for container flexibility)
       - "10000-10100:10000-10100/udp"
     
     # Volume mounts
@@ -43,8 +40,16 @@ services:
       # Persistent storage for logs and recordings
       - callie_logs:/app/logs
       - callie_audio:/app/captured_audio
-      # Optional: Mount config file
-      - ./config.env:/app/.env:ro
+      # Optional: Mount config file if needed
+      - ./docker.env:/app/.env:ro
+    
+    # Network configuration - use host network for better SIP compatibility
+    network_mode: "bridge"
+    
+    # DNS configuration for better SIP resolution
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     
     # Health check
     healthcheck:
@@ -52,52 +57,32 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 15s
     
     # Resource limits (adjust based on needs)
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 512M
+          cpus: '2.0'
+          memory: 1G
         reservations:
           cpus: '0.5'
           memory: 256M
-    
-    # Network configuration
-    networks:
-      - callie-network
     
     # Logging configuration
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
-
-  # Optional: Redis for session storage (if implementing session management)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: callie-redis
-  #   restart: unless-stopped
-  #   volumes:
-  #     - callie_redis:/data
-  #   networks:
-  #     - callie-network
-
-  # Optional: Database for conversation history
-  # postgres:
-  #   image: postgres:15-alpine
-  #   container_name: callie-postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: callie_caller
-  #     POSTGRES_USER: callie
-  #     POSTGRES_PASSWORD: ${DB_PASSWORD}
-  #   volumes:
-  #     - callie_db:/var/lib/postgresql/data
-  #   networks:
-  #     - callie-network
+        max-file: "5"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # For debugging - remove in production
+    # Default command uses main-cloudrun-full.py for full SIP support
+    # command: ["python", "main-cloudrun-full.py"]
 
 # Named volumes for persistent data
 volumes:
@@ -105,12 +90,10 @@ volumes:
     driver: local
   callie_audio:
     driver: local
-  # callie_redis:
-  #   driver: local
-  # callie_db:
-  #   driver: local
 
-# Network configuration
-networks:
-  callie-network:
-    driver: bridge 
+# Optional: Use host networking for maximum SIP compatibility (alternative approach)
+# Uncomment this and comment out the ports section above if you have issues
+# services:
+#   callie-caller:
+#     network_mode: "host"
+#     # Remove ports section when using host networking 

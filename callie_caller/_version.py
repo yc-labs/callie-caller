@@ -4,7 +4,37 @@ This file is the single source of truth for version information.
 """
 
 __version__ = "1.0.0"
-__version_info__ = tuple(map(int, __version__.split('.')))
+
+# Robust version parsing that handles non-standard version strings
+def _parse_version(version_str):
+    """Parse version string robustly, handling build suffixes."""
+    try:
+        # Split by '.' and take only numeric parts
+        parts = version_str.split('.')
+        numeric_parts = []
+        for part in parts:
+            # Extract only the numeric portion
+            numeric_part = ""
+            for char in part:
+                if char.isdigit():
+                    numeric_part += char
+                else:
+                    break
+            if numeric_part:
+                numeric_parts.append(int(numeric_part))
+            else:
+                break
+        
+        # Ensure we have at least 3 parts (major, minor, patch)
+        while len(numeric_parts) < 3:
+            numeric_parts.append(0)
+            
+        return tuple(numeric_parts[:3])  # Only take first 3 parts
+    except (ValueError, AttributeError):
+        # Fallback for any parsing errors
+        return (1, 0, 0)
+
+__version_info__ = _parse_version(__version__)
 
 # Build metadata
 __build__ = "production"

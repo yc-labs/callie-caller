@@ -1,0 +1,296 @@
+2025-07-22 17:52:59,924 - __main__ - INFO - 📞 SIMPLE CALL TEST
+2025-07-22 17:52:59,924 - __main__ - INFO - ==============================
+2025-07-22 17:53:00,670 - __main__ - INFO - Creating agent...
+2025-07-22 17:53:00,688 - callie_caller.ai.live_client_fixed - INFO - LiveClient initialized with simplified audio pipeline
+2025-07-22 17:53:00,688 - callie_caller.ai.conversation_fixed - INFO - AudioBridge initialized with simplified pipeline
+2025-07-22 17:53:00,689 - callie_caller.core.agent - INFO - Callie Agent initialized
+2025-07-22 17:53:00,689 - __main__ - INFO - Starting agent...
+2025-07-22 17:53:00,689 - callie_caller.core.agent - INFO - Starting Callie Agent...
+2025-07-22 17:53:00,888 - callie_caller.utils.network - INFO - 🌍 Public IP discovered: 76.97.219.132
+2025-07-22 17:53:00,891 - callie_caller.sip.client - INFO - SIP client started on 10.0.0.130:52387 (Public: 76.97.219.132)
+2025-07-22 17:53:00,891 - callie_caller.sip.client - INFO - Emulating: Yealink SIP-T46S 66.85.0.5 ~00:1a:2b:3c:4d:5e
+2025-07-22 17:53:00,892 - callie_caller.sip.client - INFO - 👂 SIP message listener started
+2025-07-22 17:53:00,892 - callie_caller.sip.client - INFO - Registering with us3-proxy2.zohovoice.com
+2025-07-22 17:53:00,892 - callie_caller.sip.client - INFO - Sending SIP: REGISTER sip:us3-proxy2.zohovoice.com SIP/2.0
+2025-07-22 17:53:00,933 - callie_caller.sip.client - INFO - Authentication required, sending authenticated REGISTER...
+2025-07-22 17:53:00,933 - callie_caller.sip.client - INFO - Sending SIP: REGISTER sip:us3-proxy2.zohovoice.com SIP/2.0
+2025-07-22 17:53:00,976 - callie_caller.sip.client - INFO - ✅ SIP registration successful!
+2025-07-22 17:53:00,976 - callie_caller.core.agent - INFO - Event loop started for audio conversations
+ * Serving Flask app 'callie_caller.core.agent'
+ * Debug mode: off
+2025-07-22 17:53:00,981 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://10.0.0.130:8080
+2025-07-22 17:53:00,981 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-07-22 17:53:01,478 - callie_caller.core.agent - INFO - Callie Agent started successfully
+2025-07-22 17:53:01,478 - callie_caller.core.agent - INFO - - SIP client: 10.0.0.130:52387
+2025-07-22 17:53:01,478 - callie_caller.core.agent - INFO - - Device emulation: Yealink SIP-T46S 66.85.0.5 ~00:1a:2b:3c:4d:5e
+2025-07-22 17:53:01,478 - callie_caller.core.agent - INFO - - Web server: http://0.0.0.0:8080
+2025-07-22 17:53:01,478 - __main__ - INFO - Waiting for agent to fully initialize...
+2025-07-22 17:53:06,483 - __main__ - INFO - Making call to +16782960086...
+2025-07-22 17:53:06,483 - callie_caller.core.agent - INFO - 📞 Making call to +16782960086
+2025-07-22 17:53:06,484 - callie_caller.sip.client - INFO - Making call to +16782960086
+2025-07-22 17:53:06,484 - callie_caller.sip.client - INFO - 🌉 Starting RTP bridge for media relay...
+2025-07-22 17:53:06,484 - callie_caller.sip.rtp_bridge - INFO - 🌉 RTP Bridge initialized for 10.0.0.130
+2025-07-22 17:53:06,484 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV audio recording enabled - will save to captured_audio/
+2025-07-22 17:53:06,490 - callie_caller.utils.network - INFO - 🔍 Discovering UPnP devices...
+2025-07-22 17:53:08,532 - callie_caller.utils.network - INFO - 📡 Found 1 UPnP device(s)
+2025-07-22 17:53:08,677 - callie_caller.utils.network - INFO - 🌐 UPnP Router found:
+2025-07-22 17:53:08,677 - callie_caller.utils.network - INFO -    • External IP: 76.97.219.132
+2025-07-22 17:53:08,677 - callie_caller.utils.network - INFO -    • Local IP: 10.0.0.130
+2025-07-22 17:53:08,677 - callie_caller.utils.network - INFO -    • Router: <built-in method statusinfo of miniupnpc.UPnP object at 0x120042000>
+2025-07-22 17:53:08,677 - callie_caller.sip.rtp_bridge - INFO - 🎯 UPnP enabled - will automatically configure port forwarding
+2025-07-22 17:53:08,677 - callie_caller.sip.rtp_bridge - INFO - 🔧 NAT TRAVERSAL: Trying fixed port range 10000-10100
+2025-07-22 17:53:08,694 - callie_caller.utils.network - INFO - ✅ UPnP port forwarding: UDP 10000 → 10.0.0.130:10000
+2025-07-22 17:53:08,694 - callie_caller.sip.rtp_bridge - INFO - 🎯 RTP Bridge bound to FIXED PORT: 0.0.0.0:10000 (UPnP forwarded)
+2025-07-22 17:53:08,694 - callie_caller.sip.rtp_bridge - INFO - 🔧 NAT FIX: Bridge can receive packets sent to public IP
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🎵 Opened WAV file: captured_audio/caller_audio_1753221188.wav (8000Hz, 1ch)
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🎵 Opened WAV file: captured_audio/remote_audio_1753221188.wav (8000Hz, 1ch)
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV recording files created for session 1753221188
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🌉 RTP Bridge loop started
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🔍 Listening for RTP packets on ALL INTERFACES port 10000
+2025-07-22 17:53:08,695 - callie_caller.sip.rtp_bridge - INFO - 🎯 Will capture caller audio for AI (NO ECHO FORWARDING)
+2025-07-22 17:53:08,695 - callie_caller.sip.client - INFO - 🌉 RTP bridge listening on 10.0.0.130:10000
+2025-07-22 17:53:08,696 - callie_caller.sip.client - INFO - Sending SIP: INVITE sip:+16782960086@us3-proxy2.zohovoice.com SIP/2.0
+2025-07-22 17:53:08,746 - callie_caller.sip.client - INFO - Received auth challenge (407), letting main thread handle it.
+2025-07-22 17:53:08,746 - callie_caller.sip.client - INFO - Authentication required for call, sending authenticated INVITE...
+2025-07-22 17:53:08,746 - callie_caller.sip.client - INFO - Sending SIP: INVITE sip:+16782960086@us3-proxy2.zohovoice.com SIP/2.0
+2025-07-22 17:53:08,748 - callie_caller.sip.client - INFO - ⏳ Waiting for call to connect...
+2025-07-22 17:53:10,722 - callie_caller.sip.client - INFO - Phone is ringing (183 Session Progress)...
+2025-07-22 17:53:10,722 - callie_caller.sip.call - INFO - Call call-578745-1753221186 is ringing
+2025-07-22 17:53:14,820 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:14,820 - callie_caller.sip.sdp - INFO - Audio: 8.47.10.201:60078
+2025-07-22 17:53:14,820 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:14,820 - callie_caller.sip.call - INFO - Call call-578745-1753221186 answered
+2025-07-22 17:53:14,856 - callie_caller.sip.client - INFO - 🎉 Call Answered and Connected!
+2025-07-22 17:53:14,857 - callie_caller.sip.client - INFO - Sending SIP: ACK sip:+16782960086@us3-proxy2.zohovoice.com SIP/2.0
+2025-07-22 17:53:14,859 - callie_caller.sip.client - INFO - 🎤 Remote audio endpoint: 8.47.10.201:60078
+2025-07-22 17:53:14,859 - callie_caller.sip.rtp_bridge - INFO - 🎯 Caller endpoint initialized from SDP: 8.47.10.201:60078
+2025-07-22 17:53:14,859 - callie_caller.sip.rtp_bridge - INFO - 🎯 Remote endpoint updated: 8.47.10.201:60078
+2025-07-22 17:53:14,859 - callie_caller.sip.client - INFO - 🌉 RTP bridge configured for media path: Phone ↔️ Bridge (10000) ↔️ Remote
+2025-07-22 17:53:14,859 - callie_caller.sip.client - INFO - 📋 SDP Configuration Summary:
+2025-07-22 17:53:14,859 - callie_caller.sip.client - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:53:14,859 - callie_caller.sip.client - INFO -    • SDP advertised: 76.97.219.132:10000
+2025-07-22 17:53:14,860 - callie_caller.sip.client - INFO -    • Remote sends to: 8.47.10.201:60078
+2025-07-22 17:53:14,860 - callie_caller.sip.client - INFO -    • NAT Traversal: ENABLED
+2025-07-22 17:53:14,860 - callie_caller.sip.client - WARNING - ❌ Cannot start test audio - requirements not met
+2025-07-22 17:53:14,860 - callie_caller.core.agent - INFO - 🎉 Call call-578745-1753221186 connected successfully!
+2025-07-22 17:53:14,861 - callie_caller.core.agent - INFO - 🎤 Starting conversation for call call-578745-1753221186
+2025-07-22 17:53:14,861 - callie_caller.core.agent - INFO - ⏳ Allowing 2 seconds for call to fully establish...
+2025-07-22 17:53:15,292 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:15,292 - callie_caller.sip.sdp - INFO - Audio: 8.47.10.201:60078
+2025-07-22 17:53:15,292 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:16,293 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:16,293 - callie_caller.sip.sdp - INFO - Audio: 8.47.10.201:60078
+2025-07-22 17:53:16,293 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:16,862 - callie_caller.core.agent - INFO - 🔍 Checking if call is truly answered or voicemail...
+2025-07-22 17:53:18,317 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:18,317 - callie_caller.sip.sdp - INFO - Audio: 8.47.10.201:60078
+2025-07-22 17:53:18,317 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:19,161 - callie_caller.sip.rtp_bridge - INFO - 🆕 NEW RTP SOURCE detected: 8.47.10.201:60078
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO - 📦 INCOMING RTP ANALYSIS from 8.47.10.201:60078:
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO -    • Version: 2, Payload Type: 8 (PCMA)
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO -    • Sequence: 8900, Timestamp: 67920
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO -    • SSRC: 0xa8a667ed, Payload: 160 bytes
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO -    • Marker: 0, Padding: 0
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: First caller audio packet saved! (172 bytes RTP)
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO - 🌉 Bridge stats: 1 received, 0 to AI, 0 from AI
+2025-07-22 17:53:19,162 - callie_caller.sip.rtp_bridge - INFO - 📊 Packet sources seen: 1 unique endpoints
+2025-07-22 17:53:19,163 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV Recording stats: 1 caller packets, 0 remote packets saved to WAV
+2025-07-22 17:53:19,163 - callie_caller.sip.rtp_bridge - INFO - ✅ SUCCESS! Audio packets flowing - NO ECHO forwarding
+2025-07-22 17:53:19,863 - callie_caller.core.agent - INFO - 🎯 Initializing audio conversation for call-578745-1753221186
+2025-07-22 17:53:19,864 - callie_caller.sip.client - INFO - 🎤 Starting AI audio conversation for call call-578745-1753221186
+2025-07-22 17:53:19,864 - callie_caller.sip.client - ERROR - Failed to start audio conversation: AudioBridge.__init__() missing 1 required positional argument: 'api_key'
+2025-07-22 17:53:19,864 - callie_caller.core.agent - INFO - ✅ Audio conversation started for call-578745-1753221186
+2025-07-22 17:53:19,864 - callie_caller.core.agent - INFO - 🔔 Monitoring call call-578745-1753221186 - will exit when call ends...
+2025-07-22 17:53:20,165 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 50 caller packets saved to WAV
+2025-07-22 17:53:20,865 - callie_caller.core.agent - INFO - 🕐 Call conversation active for 1 seconds
+2025-07-22 17:53:21,210 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 100 caller packets saved to WAV
+2025-07-22 17:53:21,866 - callie_caller.core.agent - INFO - 🕐 Call conversation active for 2 seconds
+2025-07-22 17:53:22,141 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 150 caller packets saved to WAV
+2025-07-22 17:53:22,290 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:22,291 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:22,291 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:22,867 - callie_caller.core.agent - INFO - 🕐 Call conversation active for 3 seconds
+2025-07-22 17:53:23,140 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 200 caller packets saved to WAV
+2025-07-22 17:53:23,869 - callie_caller.core.agent - INFO - 🕐 Call conversation active for 4 seconds
+2025-07-22 17:53:24,138 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 250 caller packets saved to WAV
+2025-07-22 17:53:24,870 - callie_caller.core.agent - INFO - 🕐 Call conversation active for 5 seconds
+2025-07-22 17:53:25,156 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 300 caller packets saved to WAV
+2025-07-22 17:53:26,140 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 350 caller packets saved to WAV
+2025-07-22 17:53:26,292 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:26,292 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:26,292 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:27,141 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 400 caller packets saved to WAV
+2025-07-22 17:53:28,142 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 450 caller packets saved to WAV
+2025-07-22 17:53:29,154 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV RECORDING: 500 caller packets saved to WAV
+2025-07-22 17:53:29,182 - callie_caller.sip.rtp_bridge - INFO - 🌉 Bridge stats: 502 received, 0 to AI, 0 from AI
+2025-07-22 17:53:29,182 - callie_caller.sip.rtp_bridge - INFO - 📊 Packet sources seen: 1 unique endpoints
+2025-07-22 17:53:29,182 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV Recording stats: 500 caller packets, 0 remote packets saved to WAV
+2025-07-22 17:53:29,182 - callie_caller.sip.rtp_bridge - INFO - ✅ SUCCESS! Audio packets flowing - NO ECHO forwarding
+2025-07-22 17:53:29,875 - callie_caller.core.agent - INFO - 📞 Call active for 23 seconds - state: connected
+2025-07-22 17:53:29,875 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 536 received, 0 to AI, 0 from AI
+2025-07-22 17:53:29,876 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 10s
+2025-07-22 17:53:30,291 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:30,291 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:30,291 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:34,316 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:34,317 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:34,317 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:38,293 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:38,293 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:38,293 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:39,188 - callie_caller.sip.rtp_bridge - INFO - 🌉 Bridge stats: 1001 received, 0 to AI, 0 from AI
+2025-07-22 17:53:39,188 - callie_caller.sip.rtp_bridge - INFO - 📊 Packet sources seen: 1 unique endpoints
+2025-07-22 17:53:39,188 - callie_caller.sip.rtp_bridge - INFO - 🎵 WAV Recording stats: 500 caller packets, 0 remote packets saved to WAV
+2025-07-22 17:53:39,188 - callie_caller.sip.rtp_bridge - INFO - ✅ SUCCESS! Audio packets flowing - NO ECHO forwarding
+2025-07-22 17:53:39,888 - callie_caller.core.agent - INFO - 📞 Call active for 33 seconds - state: connected
+2025-07-22 17:53:39,888 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1035 received, 0 to AI, 0 from AI
+2025-07-22 17:53:39,889 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 20s
+2025-07-22 17:53:42,293 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:42,293 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:42,293 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:46,437 - callie_caller.sip.sdp - INFO - Parsed SDP session: FreeSWITCH
+2025-07-22 17:53:46,437 - callie_caller.sip.sdp - INFO - Audio: 10.153.156.41:22370
+2025-07-22 17:53:46,437 - callie_caller.sip.sdp - INFO - Codecs: 2 available
+2025-07-22 17:53:49,898 - callie_caller.core.agent - INFO - 📞 Call active for 43 seconds - state: connected
+2025-07-22 17:53:49,898 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:53:49,899 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 30s
+2025-07-22 17:53:59,910 - callie_caller.core.agent - INFO - 📞 Call active for 53 seconds - state: connected
+2025-07-22 17:53:59,911 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:53:59,911 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 40s
+2025-07-22 17:53:59,911 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:53:59,911 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:53:59,911 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:53:59,912 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:09,923 - callie_caller.core.agent - INFO - 📞 Call active for 63 seconds - state: connected
+2025-07-22 17:54:09,924 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:54:09,924 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 50s
+2025-07-22 17:54:09,924 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:54:09,924 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:54:09,924 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:54:09,925 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:19,937 - callie_caller.core.agent - INFO - 📞 Call active for 73 seconds - state: connected
+2025-07-22 17:54:19,937 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:54:19,937 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 60s
+2025-07-22 17:54:19,937 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:54:19,938 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:54:19,938 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:54:19,938 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:20,940 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 61s - possible dead connection
+2025-07-22 17:54:21,941 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 62s - possible dead connection
+2025-07-22 17:54:22,942 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 63s - possible dead connection
+2025-07-22 17:54:23,943 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 64s - possible dead connection
+2025-07-22 17:54:24,945 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 65s - possible dead connection
+2025-07-22 17:54:25,946 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 66s - possible dead connection
+2025-07-22 17:54:26,948 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 67s - possible dead connection
+2025-07-22 17:54:27,950 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 68s - possible dead connection
+2025-07-22 17:54:28,951 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 69s - possible dead connection
+2025-07-22 17:54:29,953 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 70s - possible dead connection
+2025-07-22 17:54:29,953 - callie_caller.core.agent - INFO - 📞 Call active for 83 seconds - state: connected
+2025-07-22 17:54:29,953 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:54:29,953 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 70s
+2025-07-22 17:54:29,953 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:54:29,953 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:54:29,954 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:54:29,954 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:30,954 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 71s - possible dead connection
+2025-07-22 17:54:31,956 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 72s - possible dead connection
+2025-07-22 17:54:32,958 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 73s - possible dead connection
+2025-07-22 17:54:33,959 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 74s - possible dead connection
+2025-07-22 17:54:34,960 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 75s - possible dead connection
+2025-07-22 17:54:35,962 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 76s - possible dead connection
+2025-07-22 17:54:36,963 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 77s - possible dead connection
+2025-07-22 17:54:37,965 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 78s - possible dead connection
+2025-07-22 17:54:38,967 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 79s - possible dead connection
+2025-07-22 17:54:39,969 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 80s - possible dead connection
+2025-07-22 17:54:39,969 - callie_caller.core.agent - INFO - 📞 Call active for 93 seconds - state: connected
+2025-07-22 17:54:39,969 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:54:39,970 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 80s
+2025-07-22 17:54:39,970 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:54:39,970 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:54:39,970 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:54:39,970 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:40,972 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 81s - possible dead connection
+2025-07-22 17:54:41,972 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 82s - possible dead connection
+2025-07-22 17:54:42,974 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 83s - possible dead connection
+2025-07-22 17:54:43,975 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 84s - possible dead connection
+2025-07-22 17:54:44,976 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 85s - possible dead connection
+2025-07-22 17:54:45,977 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 86s - possible dead connection
+2025-07-22 17:54:46,978 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 87s - possible dead connection
+2025-07-22 17:54:47,980 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 88s - possible dead connection
+2025-07-22 17:54:48,981 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 89s - possible dead connection
+2025-07-22 17:54:49,983 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 90s - possible dead connection
+2025-07-22 17:54:49,983 - callie_caller.core.agent - INFO - 📞 Call active for 103 seconds - state: connected
+2025-07-22 17:54:49,984 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:54:49,984 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 90s
+2025-07-22 17:54:49,984 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:54:49,984 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:54:49,984 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:54:49,984 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:54:50,986 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 91s - possible dead connection
+2025-07-22 17:54:51,987 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 92s - possible dead connection
+2025-07-22 17:54:52,989 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 93s - possible dead connection
+2025-07-22 17:54:53,990 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 94s - possible dead connection
+2025-07-22 17:54:54,991 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 95s - possible dead connection
+2025-07-22 17:54:55,993 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 96s - possible dead connection
+2025-07-22 17:54:56,994 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 97s - possible dead connection
+2025-07-22 17:54:57,996 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 98s - possible dead connection
+2025-07-22 17:54:58,998 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 99s - possible dead connection
+2025-07-22 17:54:59,999 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 100s - possible dead connection
+2025-07-22 17:55:00,000 - callie_caller.core.agent - INFO - 📞 Call active for 114 seconds - state: connected
+2025-07-22 17:55:00,000 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:55:00,000 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 100s
+2025-07-22 17:55:00,000 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:55:00,000 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:55:00,001 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:55:00,001 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:55:01,002 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 101s - possible dead connection
+2025-07-22 17:55:02,003 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 102s - possible dead connection
+2025-07-22 17:55:03,007 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 103s - possible dead connection
+2025-07-22 17:55:04,009 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 104s - possible dead connection
+2025-07-22 17:55:05,011 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 105s - possible dead connection
+2025-07-22 17:55:06,012 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 106s - possible dead connection
+2025-07-22 17:55:07,013 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 107s - possible dead connection
+2025-07-22 17:55:08,014 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 108s - possible dead connection
+2025-07-22 17:55:09,016 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 109s - possible dead connection
+2025-07-22 17:55:10,017 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 110s - possible dead connection
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO - 📞 Call active for 124 seconds - state: connected
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 110s
+2025-07-22 17:55:10,017 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:55:10,017 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:55:11,017 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 111s - possible dead connection
+2025-07-22 17:55:12,019 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 112s - possible dead connection
+2025-07-22 17:55:13,020 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 113s - possible dead connection
+2025-07-22 17:55:14,022 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 114s - possible dead connection
+2025-07-22 17:55:15,024 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 115s - possible dead connection
+2025-07-22 17:55:16,025 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 116s - possible dead connection
+2025-07-22 17:55:17,026 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 117s - possible dead connection
+2025-07-22 17:55:18,028 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 118s - possible dead connection
+2025-07-22 17:55:19,029 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 119s - possible dead connection
+2025-07-22 17:55:20,038 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 120s - possible dead connection
+2025-07-22 17:55:20,038 - callie_caller.core.agent - INFO - 📞 Call active for 134 seconds - state: connected
+2025-07-22 17:55:20,039 - callie_caller.core.agent - INFO - 🌉 Bridge stats: 1069 received, 0 to AI, 0 from AI
+2025-07-22 17:55:20,039 - callie_caller.core.agent - INFO - 🎙️  Conversation activity: 0 total packets, silence: 120s
+2025-07-22 17:55:20,039 - callie_caller.core.agent - WARNING - ⚠️  No conversation activity detected - check audio pipeline
+2025-07-22 17:55:20,039 - callie_caller.core.agent - INFO - 🔧 Troubleshooting:
+2025-07-22 17:55:20,039 - callie_caller.core.agent - INFO -    • Bridge listening on: ALL INTERFACES:10000
+2025-07-22 17:55:20,039 - callie_caller.core.agent - INFO -    • Remote endpoint: 8.47.10.201:60078
+2025-07-22 17:55:21,039 - callie_caller.core.agent - WARNING - ⚠️  No RTP traffic for 121s - possible dead connection
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - 📞 Hanging up due to dead connection (no RTP traffic for 2+ minutes)
+2025-07-22 17:55:21,040 - callie_caller.sip.call - INFO - 📞 Hanging up call call-578745-1753221186
+2025-07-22 17:55:21,040 - callie_caller.sip.call - INFO - Call call-578745-1753221186 ended after 134.6 seconds
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - 📞 Call call-578745-1753221186 ended with state: ended
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - ⏱️  Total call duration: 134.6 seconds
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - 🧹 Cleaning up call call-578745-1753221186
+2025-07-22 17:55:21,040 - callie_caller.sip.client - INFO - 🔇 Audio conversation stopped
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - 🔇 Audio conversation stopped for call-578745-1753221186
+2025-07-22 17:55:21,040 - callie_caller.core.agent - INFO - 📞 Call call-578745-1753221186 conversation completed
+2025-07-22 17:55:21,040 - __main__ - INFO - ✅ Call initiated successfully!
+2025-07-22 17:55:21,040 - __main__ - INFO - Please answer your phone and test the audio...
+2025-07-22 17:56:21,104 - callie_caller.utils.network - INFO - 🗑️  Removed UPnP forwarding for UDP 10000
+2025-07-22 17:56:21,104 - callie_caller.sip.rtp_bridge - INFO - 🧹 Cleaned up UPnP forwarding for port 10000

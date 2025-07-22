@@ -187,3 +187,30 @@ Sentiment:"""
         except Exception as e:
             logger.error(f"Failed to analyze sentiment: {e}")
             return 'neutral' 
+
+async def test_gemini_connection() -> bool:
+    """
+    Test connection to Gemini API.
+    
+    Returns:
+        True if connection successful, False otherwise
+    """
+    try:
+        settings = get_settings()
+        client = genai.Client(api_key=settings.ai.api_key)
+        
+        response = client.models.generate_content(
+            model=settings.ai.model,
+            contents="Hello, this is a connection test. Please respond with 'OK'."
+        )
+        
+        if response and response.text:
+            logger.info("Gemini AI connection test successful")
+            return True
+        else:
+            logger.error("Gemini AI connection test failed - no response")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Gemini AI connection test failed: {e}")
+        return False 

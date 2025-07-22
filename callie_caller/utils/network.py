@@ -1,8 +1,28 @@
 import subprocess
 import logging
+import socket
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+def get_local_ip() -> str:
+    """
+    Get the local IP address of this machine.
+    Used for SIP and RTP communication.
+    """
+    try:
+        # Connect to a remote address to determine which local interface to use
+        # We use Google's DNS (8.8.8.8) but don't actually send any data
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            logger.info(f"🏠 Local IP determined: {local_ip}")
+            return local_ip
+    except Exception:
+        # Fallback to localhost if the above fails
+        logger.warning("Could not determine local IP, using localhost")
+        return "127.0.0.1"
+
 
 def get_public_ip() -> Optional[str]:
     """

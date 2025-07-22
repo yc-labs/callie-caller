@@ -1,7 +1,7 @@
 # Callie Caller - AI Voice Agent
 # Production-ready Docker image
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Build arguments for version and metadata
 ARG VERSION=1.0.0

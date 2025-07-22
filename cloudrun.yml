@@ -1,0 +1,98 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: callie-caller
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu-boost: true
+        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/minScale: "0"
+    spec:
+      containerConcurrency: 1000
+      timeoutSeconds: 3600
+      containers:
+      - image: us-central1-docker.pkg.dev/yc-partners/callie-caller/callie-caller:latest
+        ports:
+        - name: http1
+          containerPort: 8080
+        env:
+        # SIP Configuration
+        - name: ZOHO_SIP_SERVER
+          value: "us3-proxy2.zohovoice.com"
+        - name: ZOHO_SIP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: zoho-sip-username
+        - name: ZOHO_SIP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: zoho-sip-password
+        - name: ZOHO_SIP_BACKUP_SERVER
+          value: "us4-proxy2.zohovoice.com"
+        - name: ACCOUNT_LABEL
+          value: "Troy Fortin"
+        - name: CUSTOM_USER_AGENT
+          value: "00:1a:2b:3c:4d:5e"
+        
+        # AI Configuration
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: gemini-api-key
+        
+        # Cloud Run Specific Configuration
+        - name: USE_UPNP
+          value: "false"
+        - name: CONTAINER_MODE
+          value: "true"
+        - name: CLOUD_RUN_MODE
+          value: "true"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        
+        # Port Configuration
+        - name: FLASK_PORT
+          value: "8080"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: SIP_PORT
+          value: "5060"
+        
+        # Test Configuration
+        - name: TEST_CALL_NUMBER
+          value: "+16782960086"
+        
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "512Mi"
+        
+        # Health check
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5 
