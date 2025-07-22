@@ -3,7 +3,7 @@ Version management for Callie Caller.
 This file is the single source of truth for version information.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Robust version parsing that handles non-standard version strings
 def _parse_version(version_str):
