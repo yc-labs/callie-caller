@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  callie-caller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE}
+        VCS_REF: ${VCS_REF}
+        BUILD_NUMBER: ${BUILD_NUMBER}
+    image: callie-caller:${VERSION:-latest}
+    container_name: callie-caller
+    restart: unless-stopped
+    
+    # Environment configuration
+    environment:
+      # SIP Configuration (from .env file)
+      - ZOHO_SIP_DOMAIN=${ZOHO_SIP_DOMAIN}
+      - ZOHO_SIP_USERNAME=${ZOHO_SIP_USERNAME}
+      - ZOHO_SIP_PASSWORD=${ZOHO_SIP_PASSWORD}
+      
+      # Google AI Configuration
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      
+      # Optional configuration
+      - USE_UPNP=${USE_UPNP:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SERVER_PORT=${SERVER_PORT:-8080}
+      
+      # Container-specific settings
+      - PYTHONUNBUFFERED=1
+    
+    # Port mapping
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+      # RTP port range for audio
+      - "10000-10100:10000-10100/udp"
+    
+    # Volume mounts
+    volumes:
+      # Persistent storage for logs and recordings
+      - callie_logs:/app/logs
+      - callie_audio:/app/captured_audio
+      # Optional: Mount config file
+      - ./config.env:/app/.env:ro
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    # Resource limits (adjust based on needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Network configuration
+    networks:
+      - callie-network
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Redis for session storage (if implementing session management)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: callie-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - callie_redis:/data
+  #   networks:
+  #     - callie-network
+
+  # Optional: Database for conversation history
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: callie-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: callie_caller
+  #     POSTGRES_USER: callie
+  #     POSTGRES_PASSWORD: ${DB_PASSWORD}
+  #   volumes:
+  #     - callie_db:/var/lib/postgresql/data
+  #   networks:
+  #     - callie-network
+
+# Named volumes for persistent data
+volumes:
+  callie_logs:
+    driver: local
+  callie_audio:
+    driver: local
+  # callie_redis:
+  #   driver: local
+  # callie_db:
+  #   driver: local
+
+# Network configuration
+networks:
+  callie-network:
+    driver: bridge 

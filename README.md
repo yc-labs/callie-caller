@@ -12,6 +12,8 @@ A production-ready AI voice assistant that makes and receives phone calls using 
 - **Web API**: RESTful endpoints for making calls and monitoring
 - **Call Recording**: Automatic WAV recording of conversations
 - **Scalable Architecture**: Modular design for easy customization
+- **Docker Support**: Containerized deployment with Google Artifact Registry
+- **Version Control**: Semantic versioning with automated CI/CD
 
 ## Architecture
 
@@ -33,10 +35,12 @@ A production-ready AI voice assistant that makes and receives phone calls using 
 ### Prerequisites
 
 - Python 3.8 or higher
+- Docker and Docker Compose (for containerized deployment)
 - SIP provider account (Zoho Voice recommended)
 - Google AI API key with Gemini Live access
+- Google Cloud Project (for container registry)
 
-### Setup
+### Local Development Setup
 
 ```bash
 # Clone the repository
@@ -49,6 +53,37 @@ pip install -r requirements.txt
 # Configure environment
 cp config.env.template .env
 # Edit .env with your credentials
+```
+
+### Docker Deployment
+
+#### Quick Start with Docker
+
+```bash
+# Build and run locally
+docker-compose up -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f callie-caller
+```
+
+#### Production Deployment with Google Artifact Registry
+
+```bash
+# Set up Google Artifact Registry (one-time setup)
+./deploy.sh --project your-gcp-project setup
+
+# Build and push to registry
+./deploy.sh --project your-gcp-project --version 1.0.0 build
+
+# Deploy to production
+./deploy.sh --project your-gcp-project --version 1.0.0 deploy
+
+# Check deployment status
+./deploy.sh status
 ```
 
 ## Configuration
@@ -67,6 +102,12 @@ GOOGLE_API_KEY=your_gemini_api_key
 # Optional Configuration
 USE_UPNP=true
 LOG_LEVEL=INFO
+SERVER_PORT=8080
+
+# Docker/Production Configuration
+GCP_PROJECT_ID=your-gcp-project
+GAR_REGION=us-central1
+GAR_REPOSITORY=callie-caller
 ```
 
 ## Usage
@@ -85,6 +126,23 @@ python main.py --debug
 
 # Validate configuration
 python main.py --config-check
+
+# Show version information
+python main.py --version
+```
+
+### Docker Usage
+
+```bash
+# Development with local build
+docker-compose up -d
+
+# Production with GAR images
+export GAR_IMAGE=us-central1-docker.pkg.dev/your-project/callie-caller/callie-caller:1.0.0
+docker-compose -f docker-compose.prod.yml up -d
+
+# Using deployment script (recommended)
+./deploy.sh --project your-project deploy
 ```
 
 ### Web API
@@ -116,11 +174,108 @@ from callie_caller import CallieAgent
 agent = CallieAgent()
 agent.start()
 
-# Make a call
+# Make a call with validation
 success = agent.make_call("+1234567890", "Hello, this is your AI assistant!")
 
 # Cleanup
 agent.stop()
+```
+
+## Version Management
+
+### Semantic Versioning
+
+```bash
+# Show current version
+python scripts/version.py --show
+
+# Bump patch version (1.0.0 → 1.0.1)
+python scripts/version.py --bump patch
+
+# Bump minor version (1.0.0 → 1.1.0)
+python scripts/version.py --bump minor
+
+# Create a full release (bump, commit, tag, push)
+python scripts/version.py --release patch
+```
+
+### Building and Deploying
+
+```bash
+# Build specific version
+./build.sh --version 1.0.1 --project your-project --push
+
+# Build from git tag
+./build.sh --project your-project --push --latest
+
+# Complete deployment workflow
+python scripts/version.py --release patch
+./deploy.sh --project your-project build deploy
+```
+
+## Deployment Guide
+
+### Google Cloud Setup
+
+1. **Create a Google Cloud Project**
+2. **Enable APIs and set up Artifact Registry**:
+   ```bash
+   ./deploy.sh --project your-project setup
+   ```
+
+3. **Configure authentication**:
+   ```bash
+   gcloud auth login
+   gcloud auth configure-docker us-central1-docker.pkg.dev
+   ```
+
+### Production Deployment
+
+1. **Prepare environment file**:
+   ```bash
+   cp config.env.template .env
+   # Edit .env with production credentials
+   ```
+
+2. **Deploy application**:
+   ```bash
+   # Build and deploy specific version
+   ./deploy.sh --project your-project --version 1.0.0 build deploy
+   
+   # Or deploy latest
+   ./deploy.sh --project your-project deploy
+   ```
+
+3. **Monitor deployment**:
+   ```bash
+   # Check status
+   ./deploy.sh status
+   
+   # View logs
+   ./deploy.sh logs
+   
+   # Health check
+   curl http://localhost:8080/health
+   ```
+
+### CI/CD Integration
+
+The project includes scripts for automated CI/CD:
+
+- **Version Management**: `scripts/version.py` for semantic versioning
+- **Build Script**: `build.sh` for Docker image creation
+- **Deployment Script**: `deploy.sh` for complete deployment automation
+
+Example workflow:
+```bash
+# 1. Create release
+python scripts/version.py --release patch
+
+# 2. Build and push
+./build.sh --project your-project --push --latest
+
+# 3. Deploy
+./deploy.sh --project your-project deploy
 ```
 
 ## API Reference
@@ -148,6 +303,15 @@ agent.stop()
 - `GET /conversations` - Conversation history
 - `GET /stats` - Agent statistics
 
+### Version Information
+
+```python
+from callie_caller import __version__, get_version_info
+
+print(f"Version: {__version__}")
+print(f"Detailed info: {get_version_info()}")
+```
+
 ## Configuration Options
 
 ### SIP Settings
@@ -169,6 +333,13 @@ agent.stop()
 - **Voice**: Natural conversation mode
 - **Language**: English (configurable)
 
+### Docker Settings
+
+- **Base Image**: Python 3.11 slim
+- **User**: Non-root for security
+- **Health Checks**: Automated container health monitoring
+- **Resource Limits**: Configurable CPU and memory limits
+
 ## File Structure
 
 ```
@@ -177,17 +348,26 @@ callie_caller/
 ├── sip/              # SIP/RTP protocol implementation
 ├── core/             # Main orchestration and web server
 ├── config/           # Configuration management
-└── utils/            # Network utilities and helpers
+├── utils/            # Network utilities and helpers
+├── _version.py       # Version management
+├── Dockerfile        # Container definition
+├── docker-compose.yml # Development deployment
+├── docker-compose.prod.yml # Production deployment
+├── build.sh          # Docker build script
+├── deploy.sh         # Deployment automation
+└── scripts/
+    └── version.py    # Version management script
 ```
 
 ## Production Deployment
 
 ### Environment Setup
 
-1. **Configure Firewall**: Allow UDP traffic on RTP port range
+1. **Configure Firewall**: Allow UDP traffic on RTP port range (10000-10100)
 2. **Set up UPnP**: Enable for automatic NAT traversal
 3. **Logging**: Configure appropriate log levels for production
 4. **Monitoring**: Use health check endpoint for monitoring
+5. **Container Registry**: Set up Google Artifact Registry
 
 ### Security Considerations
 
@@ -196,6 +376,8 @@ callie_caller/
 - Rate limit API endpoints
 - Monitor for unusual call patterns
 - Implement proper authentication for web API
+- Use non-root container user
+- Regular security updates for base images
 
 ### Performance
 
@@ -203,6 +385,24 @@ callie_caller/
 - Automatic audio buffer management
 - Graceful error handling and recovery
 - Memory-efficient audio processing
+- Container resource limits and monitoring
+- Health checks for automatic restart
+
+### Monitoring and Logging
+
+```bash
+# Container logs
+docker-compose logs -f callie-caller
+
+# Resource usage
+docker stats callie-caller
+
+# Health monitoring
+curl http://localhost:8080/health
+
+# Application metrics
+curl http://localhost:8080/stats
+```
 
 ## Troubleshooting
 
@@ -224,6 +424,36 @@ lsof -i :8080
 - Verify codec compatibility with SIP provider
 - Monitor system audio resources
 
+**Container Issues**
+```bash
+# Check container status
+docker-compose ps
+
+# View detailed logs
+docker-compose logs callie-caller
+
+# Restart containers
+docker-compose restart
+```
+
+### Deployment Issues
+
+**GAR Authentication**
+```bash
+# Re-authenticate with Google Cloud
+gcloud auth login
+gcloud auth configure-docker us-central1-docker.pkg.dev
+```
+
+**Version Conflicts**
+```bash
+# Check current version
+python scripts/version.py --show
+
+# Clean up old images
+./deploy.sh cleanup
+```
+
 ### Support
 
 For issues and questions:
@@ -231,6 +461,7 @@ For issues and questions:
 2. Verify configuration with `--config-check`
 3. Test with debug logging enabled
 4. Review audio recordings in `captured_audio/` directory
+5. Check container health status
 
 ## License
 
@@ -239,6 +470,15 @@ MIT License - see LICENSE file for details
 ## Contributing
 
 Contributions welcome! Please read the contributing guidelines and submit pull requests for any improvements.
+
+### Development Workflow
+
+1. **Create feature branch**
+2. **Make changes**
+3. **Test locally**: `docker-compose up -d`
+4. **Bump version**: `python scripts/version.py --bump patch`
+5. **Create release**: `python scripts/version.py --release patch`
+6. **Submit pull request**
 
 ---
 

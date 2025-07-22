@@ -15,6 +15,7 @@ from pathlib import Path
 from callie_caller.core.agent import CallieAgent
 from callie_caller.config.settings import get_settings
 from callie_caller.core.logging import setup_logging
+from callie_caller import __version__, get_version_info
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,14 @@ Examples:
   python main.py --debug            # Start with debug logging
   python main.py --config-check     # Verify configuration
   python main.py --call +1234567890 # Make a test call
+  python main.py --version          # Show version information
         """
+    )
+    
+    parser.add_argument(
+        '--version',
+        action='store_true',
+        help='Show version information and exit'
     )
     
     parser.add_argument(
@@ -86,6 +94,15 @@ Examples:
     
     args = parser.parse_args()
     
+    # Handle version request
+    if args.version:
+        version_info = get_version_info()
+        print(f"Callie Caller v{version_info['version']}")
+        print(f"Build: {version_info['build']}")
+        if version_info['commit'] != 'unknown':
+            print(f"Commit: {version_info['commit']}")
+        return 0
+    
     # Setup logging
     log_level = "DEBUG" if args.debug else "INFO"
     setup_logging(level=log_level, log_file=args.log_file)
@@ -93,7 +110,7 @@ Examples:
     # Setup graceful shutdown
     signal_handler = GracefulShutdown()
     
-    logger.info("🤖 Callie Caller - AI Voice Agent")
+    logger.info(f"🤖 Callie Caller v{__version__} - AI Voice Agent")
     
     try:
         # Configuration check
