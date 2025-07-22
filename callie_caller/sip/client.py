@@ -489,43 +489,58 @@ Content-Length: 0
 
     def _dispatch_message(self, message: str, addr: tuple) -> None:
         """Parse and route incoming SIP messages."""
-        # Log all incoming messages for debugging
-        logger.debug(f"--- INCOMING SIP MESSAGE from {addr} ---\n{message}\n--------------------")
+        # Only log full messages in debug mode
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"--- INCOMING SIP MESSAGE from {addr} ---\n{message}\n--------------------")
         
         first_line = message.split('\r\n')[0]
         
-        if first_line.startswith("SIP/2.0"):
-            # This is a RESPONSE to one of our requests
-            response = parse_sip_response(message)
-            if not response:
-                return
-                
-            cseq_header = response.headers.get("cseq", "")
-            
-            # Wake up the thread waiting for this response
-            if cseq_header in self._response_events:
-                self._received_responses[cseq_header] = response
-                self._response_events[cseq_header].set()
-            
-            # Handle responses that also change call state (e.g., 200 OK to INVITE)
-            call_id = response.headers.get("call-id")
-            if call_id and call_id in self.active_calls:
-                self._handle_response_for_call(self.active_calls[call_id], response)
-
+        # Log message type in production
+        if not logger.isEnabledFor(logging.DEBUG):
+            logger.info(f"Received SIP: {first_line.split()[0] if first_line else 'Unknown'} from {addr[0]}")
+        
+        if first_line.startswith('SIP/2.0'):
+            # This is a response
+            self._handle_sip_response(message, addr)
         else:
-            # This is a new REQUEST from the server (e.g., BYE, CANCEL, INFO)
-            response = parse_sip_response(message) # Use the same parser for requests
-            if not response: return # It will fail parsing the status line, but that's ok
-            
-            call_id = response.headers.get("call-id")
-            call = self.active_calls.get(call_id)
-            if not call: return
+            # This is a request
+            self._handle_sip_request(message, addr)
 
-            method = first_line.split()[0]
-            if method == "BYE":
-                self._handle_bye(call, response.headers)
-            elif method == "CANCEL":
-                self._handle_cancel(call, response.headers)
+    def _handle_sip_response(self, message: str, addr: tuple) -> None:
+        """Handle SIP response messages."""
+        response = parse_sip_response(message)
+        if not response:
+            return
+            
+        cseq_header = response.headers.get("cseq", "")
+        
+        # Wake up the thread waiting for this response
+        if cseq_header in self._response_events:
+            self._received_responses[cseq_header] = response
+            self._response_events[cseq_header].set()
+        
+        # Handle responses that also change call state (e.g., 200 OK to INVITE)
+        call_id = response.headers.get("call-id")
+        if call_id and call_id in self.active_calls:
+            self._handle_response_for_call(self.active_calls[call_id], response)
+
+    def _handle_sip_request(self, message: str, addr: tuple) -> None:
+        """Handle SIP request messages."""
+        response = parse_sip_response(message)  # Use the same parser for requests
+        if not response: 
+            return  # It will fail parsing the status line, but that's ok
+        
+        call_id = response.headers.get("call-id")
+        call = self.active_calls.get(call_id)
+        if not call: 
+            return
+
+        first_line = message.split('\r\n')[0]
+        method = first_line.split()[0]
+        if method == "BYE":
+            self._handle_bye(call, response.headers)
+        elif method == "CANCEL":
+            self._handle_cancel(call, response.headers)
 
     def _handle_response_for_call(self, call: SipCall, response: SipResponse):
         """Update call state based on a SIP response."""
@@ -586,11 +601,18 @@ Content-Length: 0
         # and a 200 OK to the CANCEL. For now, hanging up is sufficient.
 
     def _send_message(self, message: str) -> None:
-        """Send SIP message to server."""
+        """Send a SIP message."""
         if not self.socket or not self.running:
             raise RuntimeError("SIP client not started or is stopped")
         
-        logger.debug(f"--- OUTGOING SIP MESSAGE to {self.settings.zoho.sip_server} ---\n{message}\n--------------------")
+        # Only log full messages in debug mode
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"--- OUTGOING SIP MESSAGE to {self.settings.zoho.sip_server} ---\n{message}\n--------------------")
+        else:
+            # In production, just log the message type
+            first_line = message.split('\n')[0] if message else ''
+            logger.info(f"Sending SIP: {first_line}")
+            
         self.socket.sendto(
             message.encode(),
             (self.settings.zoho.sip_server, self.settings.zoho.sip_port)

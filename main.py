@@ -5,34 +5,51 @@ Run this script to start the AI voice assistant.
 """
 
 import argparse
+import asyncio
 import signal
 import sys
 import time
+import logging
 from pathlib import Path
 
-from callie_caller.core.logging import setup_logging
 from callie_caller.core.agent import CallieAgent
-from callie_caller.config import get_settings
+from callie_caller.config.settings import get_settings
+from callie_caller.core.logging import setup_logging
 
+logger = logging.getLogger(__name__)
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully."""
-    print("\n🛑 Shutdown signal received, stopping Callie Agent...")
-    if hasattr(signal_handler, 'agent'):
-        signal_handler.agent.stop()
-    sys.exit(0)
+class GracefulShutdown:
+    """Handle graceful shutdown of the agent."""
+    def __init__(self):
+        self.agent = None
+        self.shutdown_requested = False
 
+    def __call__(self, signum, frame):
+        if self.shutdown_requested:
+            logger.warning("Force shutdown requested")
+            sys.exit(1)
+        
+        self.shutdown_requested = True
+        logger.info("Shutdown signal received, stopping Callie Agent...")
+        
+        if self.agent:
+            try:
+                self.agent.stop()
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+        
+        sys.exit(0)
 
 def main():
-    """Main function."""
+    """Main entry point for the Callie Caller application."""
     parser = argparse.ArgumentParser(
-        description="Callie Caller - AI Voice Agent for Zoho Voice",
+        description="Callie Caller - AI Voice Agent for phone conversations",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py                    # Start with default settings
+  python main.py                     # Start the agent in server mode
   python main.py --debug            # Start with debug logging
-  python main.py --log-file app.log # Log to file
+  python main.py --config-check     # Verify configuration
   python main.py --call +1234567890 # Make a test call
         """
     )
@@ -44,16 +61,14 @@ Examples:
     )
     
     parser.add_argument(
-        '--log-file',
-        type=str,
-        default=None,
-        help='Log file path (default: console only)'
+        '--config-check',
+        action='store_true',
+        help='Check configuration and exit'
     )
     
     parser.add_argument(
         '--call',
         type=str,
-        metavar='NUMBER',
         help='Make a test call to the specified number and exit'
     )
     
@@ -64,22 +79,9 @@ Examples:
     )
     
     parser.add_argument(
-        '--test-audio',
-        action='store_true',
-        help='Enable test audio mode (inject test tone instead of AI audio)'
-    )
-    
-    parser.add_argument(
-        '--test-audio-file',
+        '--log-file',
         type=str,
-        metavar='FILE',
-        help='Use specific WAV file for test audio (implies --test-audio)'
-    )
-    
-    parser.add_argument(
-        '--config-check',
-        action='store_true',
-        help='Check configuration and exit'
+        help='Log file path (default: logs to console)'
     )
     
     args = parser.parse_args()
@@ -88,71 +90,63 @@ Examples:
     log_level = "DEBUG" if args.debug else "INFO"
     setup_logging(level=log_level, log_file=args.log_file)
     
-    print("🤖 Callie Caller - AI Voice Agent")
-    print("=" * 40)
+    # Setup graceful shutdown
+    signal_handler = GracefulShutdown()
+    
+    logger.info("🤖 Callie Caller - AI Voice Agent")
     
     try:
         # Configuration check
         if args.config_check:
-            print("🔍 Checking configuration...")
+            logger.info("Checking configuration...")
             settings = get_settings()
-            print(f"✅ Configuration valid:")
-            print(f"   SIP Server: {settings.zoho.sip_server}")
-            print(f"   Username: {settings.zoho.sip_username}")
-            print(f"   Device: {settings.device.user_agent}")
-            print(f"   AI Model: {settings.ai.model}")
-            return
+            logger.info("Configuration validation successful:")
+            logger.info(f"  SIP Server: {settings.zoho.sip_server}")
+            logger.info(f"  Username: {settings.zoho.sip_username}")
+            logger.info(f"  Device: {settings.device.user_agent}")
+            logger.info(f"  AI Model: {settings.ai.model}")
+            return 0
         
         # Initialize agent
-        print("🚀 Initializing Callie Agent...")
+        logger.info("Initializing Callie Agent...")
         agent = CallieAgent()
-        signal_handler.agent = agent  # Store for signal handler
+        signal_handler.agent = agent
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
         # Start agent
-        print("🎯 Starting AI voice agent...")
+        logger.info("Starting AI voice agent...")
         agent.start()
         
         # Test call mode
         if args.call:
-            print(f"📞 Making test call to {args.call}...")
-            
-            # Enable test audio mode if requested
-            if args.test_audio or args.test_audio_file:
-                print("🧪 Test audio mode enabled")
-                if args.test_audio_file:
-                    print(f"🎵 Using test audio file: {args.test_audio_file}")
-                    agent.enable_test_audio_mode(args.test_audio_file)
-                else:
-                    print("🎵 Using generated test tone")
-                    agent.enable_test_audio_mode()
-            
+            logger.info(f"Making test call to {args.call}")
             success = agent.make_call(args.call, args.message)
             
             if success:
-                print("✅ Call completed successfully")
+                logger.info("Call completed successfully")
+                return 0
             else:
-                print("❌ Call failed or was not answered")
-                
-            print("🏁 Call session ended - shutting down agent...")
-            agent.stop()
-            return
+                logger.error("Call failed or was not answered")
+                return 1
         
         # Normal operation mode
-        print("\n🎉 Callie Agent is running!")
-        print(f"📱 Device emulation: {agent.settings.device.user_agent}")
-        print(f"🌐 Web interface: http://localhost:{agent.settings.server.port}")
-        print(f"📊 Health check: http://localhost:{agent.settings.server.port}/health")
-        print("\n📋 Available endpoints:")
-        print(f"   GET  /health        - Health check")
-        print(f"   POST /call          - Make outbound call")
-        print(f"   POST /sms           - SMS webhook")
-        print(f"   GET  /conversations - Conversation history")
-        print(f"   GET  /stats         - Agent statistics")
-        print("\n🔧 Press Ctrl+C to stop")
+        logger.info("Callie Agent is running!")
+        logger.info(f"Device emulation: {agent.settings.device.user_agent}")
+        logger.info(f"Web interface: http://localhost:{agent.settings.server.port}")
+        logger.info(f"Health check: http://localhost:{agent.settings.server.port}/health")
+        
+        if args.debug:
+            logger.debug("Available endpoints:")
+            logger.debug("  GET  /health        - Health check")
+            logger.debug("  POST /call          - Make outbound call")
+            logger.debug("  POST /sms           - SMS webhook")
+            logger.debug("  GET  /conversations - Conversation history")
+            logger.debug("  GET  /stats         - Agent statistics")
+        
+        logger.info("Press Ctrl+C to stop")
         
         # Keep running
         try:
@@ -162,15 +156,16 @@ Examples:
             signal_handler(signal.SIGINT, None)
             
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
+        logger.info("Interrupted by user")
         return 1
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"Application error: {e}")
         if args.debug:
             import traceback
-            traceback.print_exc()
+            logger.debug(f"Stack trace: {traceback.format_exc()}")
         return 1
+    
+    return 0
 
-
-if __name__ == '__main__':
-    sys.exit(main() or 0) 
+if __name__ == "__main__":
+    sys.exit(main()) 

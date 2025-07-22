@@ -125,13 +125,40 @@ class CallieAgent:
         Make an outbound call with AI conversation.
         
         Args:
-            phone_number: Target phone number
-            message: Optional initial AI message
+            phone_number: Target phone number (E.164 format recommended)
+            message: Optional initial AI message (max 1000 characters)
             
         Returns:
             bool: True if call was successful
+            
+        Raises:
+            ValueError: If phone number format is invalid
+            RuntimeError: If agent is not started
         """
-        logger.info(f"📞 Making call to {phone_number}")
+        # Input validation
+        if not self.running:
+            raise RuntimeError("Agent must be started before making calls")
+            
+        if not phone_number:
+            raise ValueError("Phone number cannot be empty")
+            
+        # Basic phone number validation
+        import re
+        # Remove common formatting characters
+        clean_number = re.sub(r'[^\d+]', '', phone_number.strip())
+        
+        # Validate phone number format
+        if not re.match(r'^\+?[1-9]\d{7,14}$', clean_number):
+            raise ValueError(f"Invalid phone number format: {phone_number}")
+            
+        # Validate message length if provided
+        if message is not None:
+            if len(message) > 1000:
+                raise ValueError("Message cannot exceed 1000 characters")
+            if not message.strip():
+                message = None  # Treat empty/whitespace as None
+                
+        logger.info(f"📞 Making call to {clean_number}")
         
         # Create a new call
         call = SipCall(
@@ -141,7 +168,7 @@ class CallieAgent:
             local_port=self.sip_client.local_port,
             settings=self.sip_client.settings,
             authenticator=self.sip_client.authenticator,
-            target_number=phone_number,
+            target_number=clean_number,
             ai_message=message
         )
         
