@@ -33,4 +33,4 @@ flask>=2.3.0
 pyaudio>=0.2.11
 pydantic>=2.0.0
 python-dotenv>=1.0.0
-miniupnpc>=2.2.2 
+# miniupnpc>=2.2.2  # Removed - UPnP not needed for Cloud Run 
