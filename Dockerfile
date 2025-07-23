@@ -61,7 +61,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 # Copy application code
 COPY callie_caller/ ./callie_caller/
-COPY main.py .
+COPY main*.py ./
 COPY config.env.template .
 
 # Set version in the container

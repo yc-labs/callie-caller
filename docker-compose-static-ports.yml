@@ -16,6 +16,7 @@ services:
     image: callie-caller-full:${VERSION:-latest}
     container_name: callie-caller
     restart: unless-stopped
+    network_mode: host
     
     # Load environment from secrets file
     env_file:
@@ -45,8 +46,7 @@ services:
       - "10003:10003/udp"  # Additional RTP port
       - "10004:10004/udp"  # Additional RTP port
     
-    # Network configuration for external access
-    network_mode: "bridge"
+    # Network configuration for external access - using host mode for UDP traffic
     
     # Volume mounts
     volumes:
