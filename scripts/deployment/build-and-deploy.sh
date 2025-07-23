@@ -235,15 +235,9 @@ build_image() {
     fi
     
     local dockerfile="Dockerfile"
-    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller"
+    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME"
     
-    if [ "$WEB_ONLY" = true ]; then
-        dockerfile="Dockerfile.cloudrun"
-        image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller-web"
-        log_info "Building web-only image..."
-    else
-        log_info "Building full SIP-enabled image..."
-    fi
+    log_info "Building unified image..."
     
     log_info "Building Docker image: $image_name:$VERSION"
     
@@ -264,11 +258,8 @@ push_image() {
     log_info "Configuring Docker for Artifact Registry..."
     gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
     
-    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller"
-    if [ "$WEB_ONLY" = true ]; then
-        image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller-web"
-    fi
-    
+    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME"
+
     log_info "Pushing image to Artifact Registry..."
     docker push "$image_name:$VERSION"
     docker push "$image_name:latest"
@@ -307,22 +298,11 @@ create_firewall_rules() {
 }
 
 deploy_to_cloud_run() {
-    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller"
-    local service_name="$SERVICE_NAME"
+    local image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME"
     
-    if [ "$WEB_ONLY" = true ]; then
-        image_name="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/callie-caller-web"
-        service_name="$SERVICE_NAME-web"
-    fi
+    log_info "Deploying to Cloud Run: $SERVICE_NAME"
     
-    log_info "Deploying to Cloud Run: $service_name"
-    
-    local env_vars="USE_UPNP=false,CONTAINER_MODE=true,CLOUD_RUN_MODE=true"
-    if [ "$WEB_ONLY" = true ]; then
-        env_vars="$env_vars,WEB_ONLY_MODE=true"
-    fi
-    
-    gcloud run deploy "$service_name" \
+    gcloud run deploy "$SERVICE_NAME" \
         --image "$image_name:$VERSION" \
         --region "$REGION" \
         --platform managed \
@@ -332,25 +312,46 @@ deploy_to_cloud_run() {
         --cpu "$CPU" \
         --max-instances "$MAX_INSTANCES" \
         --timeout 300 \
-        --set-env-vars="$env_vars" \
         --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,ZOHO_SIP_USERNAME=zoho-sip-username:latest,ZOHO_SIP_PASSWORD=zoho-sip-password:latest" \
         --project="$PROJECT_ID"
     
-    # Get service URL
-    SERVICE_URL=$(gcloud run services describe "$service_name" --region="$REGION" --project="$PROJECT_ID" --format="value(status.url)")
+    # --- Verification Step ---
+    log_info "Verifying deployment rollout..."
     
-    log_success "Deployment complete!"
+    # Get service URL and latest revision name
+    SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region="$REGION" --project="$PROJECT_ID" --format="value(status.url)")
+    LATEST_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region="$REGION" --project="$PROJECT_ID" --format="value(status.latestReadyRevisionName)")
+    
     log_info "Service URL: $SERVICE_URL"
-    log_info "Health check: $SERVICE_URL/health"
+    log_info "Latest Revision: $LATEST_REVISION"
     
-    if [ "$WEB_ONLY" != true ]; then
-        log_info "Full SIP functionality deployed to Cloud Run."
-        log_warning "Note: Inbound RTP requires external load balancer or ingress for UDP."
-        log_info "For inbound calls, consider:"
-        log_info "  • Google Compute Engine with static IP and port forwarding"
-        log_info "  • Load Balancer with UDP support for inbound RTP"
-        log_info "  • Your local Docker setup handles inbound calls perfectly"
-    fi
+    # Poll the health endpoint until it responds with the new revision
+    local timeout=180 # 3-minute timeout
+    local start_time
+    start_time=$(date +%s)
+    
+    while true; do
+        local current_time
+        current_time=$(date +%s)
+        if (( current_time - start_time > timeout )); then
+            log_error "Timeout waiting for new revision to become healthy."
+            exit 1
+        fi
+        
+        log_info "Checking health of new revision..."
+        local response
+        response=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health")
+        
+        if [ "$response" = "200" ]; then
+            log_success "New revision is healthy and serving traffic!"
+            break
+        else
+            log_warning "New revision not yet healthy (HTTP $response). Retrying in 10 seconds..."
+            sleep 10
+        fi
+    done
+    
+    log_success "Deployment complete and verified!"
 }
 
 main() {
@@ -392,9 +393,7 @@ main() {
             bump_version
             build_image
             push_image
-            if [ "$WEB_ONLY" != true ]; then
-                create_firewall_rules
-            fi
+            create_firewall_rules
             deploy_to_cloud_run
             
             # Try to push git changes
