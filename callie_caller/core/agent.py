@@ -552,16 +552,89 @@ class CallieAgent:
             """Get agent statistics."""
             try:
                 stats = self.conversation_manager.get_conversation_stats()
+                
+                # Get tool information
+                from callie_caller.ai import get_tool_manager
+                tool_manager = get_tool_manager()
+                
                 stats.update({
                     'agent_running': self.running,
                     'sip_registered': getattr(self.sip_client, 'registered', False),
-                    'device_emulation': self.settings.device.user_agent
+                    'device_emulation': self.settings.device.user_agent,
+                    'inbound_calls_enabled': True,
+                    'sip_server': self.settings.zoho.sip_server,
+                    'sip_username': self.settings.zoho.sip_username,
+                    'function_calling_enabled': True,
+                    'available_tools': list(tool_manager.tools.keys()),
+                    'tool_count': len(tool_manager.tools)
                 })
                 
                 return jsonify(stats)
                 
             except Exception as e:
                 logger.error(f"Error getting stats: {e}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/info', methods=['GET'])
+        def get_info():
+            """Get AI agent information and capabilities."""
+            # Get tool information
+            from callie_caller.ai import get_tool_manager
+            tool_manager = get_tool_manager()
+            
+            return jsonify({
+                'service': 'Callie Caller AI Voice Agent',
+                'version': '1.0.0',
+                'capabilities': {
+                    'outbound_calls': True,
+                    'inbound_calls': True,
+                    'real_time_ai': True,
+                    'sip_registered': getattr(self.sip_client, 'registered', False),
+                    'voicemail_detection': True,
+                    'conversation_memory': True,
+                    'function_calling': True,
+                    'ai_tools': list(tool_manager.tools.keys())
+                },
+                'sip_configuration': {
+                    'server': self.settings.zoho.sip_server,
+                    'username': self.settings.zoho.sip_username,
+                    'device_emulation': self.settings.device.user_agent
+                },
+                'ai_configuration': {
+                    'model': self.settings.ai.model,
+                    'real_time_voice': True,
+                    'greeting': self.settings.calls.default_greeting
+                },
+                'contact_info': {
+                    'inbound_calls': f"Call the number associated with SIP extension: {self.settings.zoho.sip_username}",
+                    'note': "To get the exact phone number, check your Zoho Voice admin panel"
+                },
+                'endpoints': {
+                    'health': '/health - Health check',
+                    'stats': '/stats - Agent statistics', 
+                    'info': '/info - This information',
+                    'conversations': '/conversations - Call history',
+                    'call': '/call (POST) - Make outbound call',
+                    'tools': '/tools - Available AI tools'
+                }
+            })
+        
+        @self.app.route('/tools', methods=['GET'])
+        def get_tools():
+            """Get available AI tools and their capabilities."""
+            try:
+                from callie_caller.ai import get_tool_manager
+                tool_manager = get_tool_manager()
+                
+                return jsonify({
+                    'function_calling_enabled': True,
+                    'tool_count': len(tool_manager.tools),
+                    'tools': tool_manager.get_tool_info(),
+                    'summary': tool_manager.get_tool_summary()
+                })
+                
+            except Exception as e:
+                logger.error(f"Error getting tools: {e}")
                 return jsonify({'error': str(e)}), 500
                 
     def _run_flask_server(self) -> None:

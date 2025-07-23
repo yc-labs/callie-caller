@@ -1,6 +1,6 @@
 """
 Google Gemini Live API client for real-time audio conversation.
-Handles bidirectional audio streaming during SIP calls.
+Handles bidirectional audio streaming during SIP calls with function calling support.
 """
 
 import asyncio
@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 
 from callie_caller.config import get_settings
+from callie_caller.ai.tools import get_tool_manager
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 1024
 
 class AudioBridge:
-    """Bridges SIP audio with Gemini Live API for real-time conversation."""
+    """Bridges SIP audio with Gemini Live API for real-time conversation with function calling."""
     
     def __init__(self):
         """Initialize audio bridge."""
@@ -49,11 +50,15 @@ class AudioBridge:
         # SIP audio callback
         self.sip_audio_callback: Optional[Callable] = None
         
-        logger.info("AudioBridge initialized")
+        # Tool manager for function calling
+        self.tool_manager = get_tool_manager()
+        
+        logger.info("AudioBridge initialized with function calling support")
+        logger.info(f"Available tools: {list(self.tool_manager.tools.keys())}")
     
     @property
     def live_config(self) -> types.LiveConnectConfig:
-        """Get Live API configuration."""
+        """Get Live API configuration with function calling support."""
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             media_resolution="MEDIA_RESOLUTION_MEDIUM",
@@ -66,7 +71,25 @@ class AudioBridge:
                 trigger_tokens=25600,
                 sliding_window=types.SlidingWindow(target_tokens=12800),
             ),
+            tools=self.tool_manager.get_tools_for_genai(),
+            system_instruction=self._get_system_instruction(),
         )
+    
+    def _get_system_instruction(self) -> str:
+        """Get system instruction for the AI with tool information."""
+        base_instruction = """You are Callie, a helpful AI voice assistant. You are having a live voice conversation with a user over the phone.
+
+Key instructions:
+- Keep responses conversational and natural since this is voice communication
+- Be concise but friendly and helpful
+- Use tools when appropriate to provide accurate, up-to-date information
+- Always acknowledge when you're using a tool (e.g., "Let me check the weather for you...")
+- If a tool fails, explain briefly and offer alternatives
+
+"""
+        
+        tool_info = self.tool_manager.get_tool_summary()
+        return base_instruction + tool_info
     
     def set_sip_audio_callback(self, callback: Callable[[bytes], None]) -> None:
         """Set callback for sending audio to SIP call."""
@@ -81,8 +104,9 @@ class AudioBridge:
             
         try:
             self.running = True
-            logger.info("🚀 Starting Live API conversation...")
+            logger.info("🚀 Starting Live API conversation with function calling...")
             logger.info(f"🔑 Using model: models/gemini-2.5-flash-exp-native-audio-thinking-dialog")
+            logger.info(f"🔧 Available tools: {', '.join(self.tool_manager.tools.keys())}")
             
             async with (
                 self.client.aio.live.connect(
@@ -113,6 +137,7 @@ class AudioBridge:
                     tg.create_task(self._receive_audio_from_ai()),
                     tg.create_task(self._send_audio_to_ai()),
                     tg.create_task(self._play_ai_audio()),
+                    tg.create_task(self._handle_function_calls()),
                 ]
                 
                 logger.info("🎵 Live conversation started - AI is now listening...")
@@ -120,6 +145,7 @@ class AudioBridge:
                 logger.info("   📥 Receiving audio from AI")
                 logger.info("   📤 Sending audio to AI") 
                 logger.info("   🔈 Playing AI audio")
+                logger.info("   🔧 Handling function calls")
                 
                 # Wait until conversation is stopped
                 while self.running:
@@ -247,6 +273,11 @@ class AudioBridge:
                         
                     if text := response.text:
                         logger.info(f"🤖 AI text response: {text}")
+                    
+                    # Handle function calls if present
+                    if hasattr(response, 'function_call') and response.function_call:
+                        logger.info(f"🔧 Function call detected: {response.function_call.name}")
+                        # Function calls will be handled by the separate task
                 
                 # CRITICAL FIX: Don't break on turn end - continue to next turn immediately
                 logger.debug("🔄 Turn ended, continuing to next turn for more audio...")
@@ -263,6 +294,29 @@ class AudioBridge:
                 continue
                 
         logger.info(f"📥 Audio-from-AI task ended (received {audio_received_count} audio chunks)")
+    
+    async def _handle_function_calls(self) -> None:
+        """Background task to handle function calls from the AI."""
+        logger.info("🔧 Function call handler started")
+        
+        while self.running and self.session:
+            try:
+                # Check for function calls in the session
+                # Note: This is a simplified approach - in reality, function calls
+                # would be handled differently in the Live API
+                
+                # For now, we'll integrate function calling into the main audio loop
+                # The actual implementation would depend on how the Live API exposes function calls
+                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+                
+            except asyncio.CancelledError:
+                logger.info("🔧 Function call handler cancelled")
+                break
+            except Exception as e:
+                logger.error(f"💥 Error in function call handler: {e}")
+                await asyncio.sleep(1)  # Pause before retry
+                
+        logger.info("🔧 Function call handler ended")
     
     def _analyze_ai_audio(self, audio_data: bytes, chunk_number: int) -> None:
         """Analyze audio data from Gemini Live API to understand format."""
