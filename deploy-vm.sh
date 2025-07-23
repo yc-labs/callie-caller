@@ -92,6 +92,7 @@ build_and_push_image() {
         --platform linux/amd64 \
         --tag $IMAGE_URI \
         --file Dockerfile.prod \
+        --build-arg VERSION=${IMAGE_TAG} \
         --push \
         .
     success "Image pushed to Artifact Registry."
