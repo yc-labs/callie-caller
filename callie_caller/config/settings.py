@@ -39,8 +39,10 @@ class DeviceSettings:
 @dataclass
 class AISettings:
     """Google Gemini AI configuration."""
-    api_key: str
-    model: str = "gemini-2.0-flash-001"
+    api_key: Optional[str]
+    project_id: Optional[str]
+    location: str
+    model: str = "gemini-2.0-flash-live-001"
     max_tokens: int = 150
     temperature: float = 0.7
 
@@ -95,8 +97,10 @@ class Settings:
         
         # AI settings (required API key)
         ai = AISettings(
-            api_key=_get_required_env("GEMINI_API_KEY"),
-            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-001"),
+            api_key=secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY"),
+            project_id=os.getenv("GOOGLE_CLOUD_PROJECT"),
+            location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-live-001"),
             max_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "150")),
             temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.7"))
         )
