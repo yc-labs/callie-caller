@@ -1,12 +1,14 @@
 """
 Main Callie Agent - AI Voice Assistant for Zoho Voice.
 Coordinates SIP calling, AI conversation, and call management.
+Supports both single-tenant (legacy) and multi-tenant modes.
 """
 
 import logging
 import threading
 import time
 import asyncio
+import os
 from typing import Optional, Dict, Any, Callable
 from flask import Flask, request, Response, jsonify
 import random
@@ -14,7 +16,6 @@ import random
 from callie_caller.sip.client import SipClient
 from callie_caller.sip.call import SipCall, CallState
 from callie_caller.ai.conversation import ConversationManager
-# from callie_caller.utils import get_public_ip - No longer needed, IP is handled by host networking
 from callie_caller.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -22,18 +23,26 @@ logger = logging.getLogger(__name__)
 class CallieAgent:
     """
     Main AI voice agent that coordinates all components.
-    Handles incoming/outgoing calls with intelligent conversation.
+    Supports both single-tenant (legacy) and multi-tenant modes.
     """
     
     def __init__(self):
         """Initialize Callie Agent."""
         self.settings = get_settings()
         
+        # Determine mode based on Firebase availability
+        self.multi_tenant_mode = self._check_firebase_availability()
+        
         # Initialize components
         self.conversation_manager = ConversationManager()
-        self.sip_client = SipClient(on_incoming_call=self._handle_incoming_call)
         
-        # Flask app for SMS and webhooks
+        # Initialize mode-specific components
+        if self.multi_tenant_mode:
+            self._init_multi_tenant_mode()
+        else:
+            self._init_single_tenant_mode()
+        
+        # Flask app for webhooks and API
         self.app = Flask(__name__)
         self._setup_flask_routes()
         
@@ -46,7 +55,47 @@ class CallieAgent:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
         
-        logger.info("Callie Agent initialized")
+        mode_str = "multi-tenant" if self.multi_tenant_mode else "single-tenant (legacy)"
+        logger.info(f"Callie Agent initialized in {mode_str} mode")
+        
+    def _check_firebase_availability(self) -> bool:
+        """Check if Firebase is configured and available."""
+        try:
+            # Check for Firebase credentials
+            firebase_service_account = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH')
+            google_app_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            
+            if not (firebase_service_account or google_app_creds):
+                logger.info("No Firebase credentials found - using single-tenant mode")
+                return False
+            
+            # Try to initialize Firebase service
+            from callie_caller.config.firebase_service import get_firebase_service
+            firebase_service = get_firebase_service()
+            
+            if firebase_service.db:
+                logger.info("✅ Firebase available - enabling multi-tenant mode")
+                return True
+            else:
+                logger.warning("Firebase service available but no database connection - using single-tenant mode")
+                return False
+                
+        except Exception as e:
+            logger.info(f"Firebase not available ({e}) - using single-tenant mode")
+            return False
+    
+    def _init_multi_tenant_mode(self):
+        """Initialize multi-tenant components."""
+        from callie_caller.core.multi_tenant_web import get_multi_tenant_manager
+        self.multi_tenant_manager = get_multi_tenant_manager()
+        self.sip_client = None  # No global SIP client in multi-tenant mode
+        logger.info("🔥 Multi-tenant mode initialized with Firebase backend")
+    
+    def _init_single_tenant_mode(self):
+        """Initialize single-tenant components."""
+        self.sip_client = SipClient(on_incoming_call=self._handle_incoming_call)
+        self.multi_tenant_manager = None
+        logger.info("📞 Single-tenant mode initialized with global SIP client")
         
     def start(self, request_headers: Optional[Dict[str, str]] = None) -> None:
         """Start the AI voice agent."""
@@ -58,14 +107,10 @@ class CallieAgent:
         self.running = True
         
         try:
-            # Start SIP client
-            self.sip_client.start(request_headers)
-            
-            # Attempt registration (optional for outbound-only mode)
-            try:
-                self.sip_client.register()
-            except Exception as e:
-                logger.warning(f"SIP registration failed (continuing in outbound-only mode): {e}")
+            if self.multi_tenant_mode:
+                self._start_multi_tenant_mode(request_headers)
+            else:
+                self._start_single_tenant_mode(request_headers)
             
             # Start Flask server in background
             flask_thread = threading.Thread(
@@ -89,22 +134,90 @@ class CallieAgent:
             time.sleep(0.5)
             
             logger.info(f"Callie Agent started successfully")
-            logger.info(f"- SIP client: {self.sip_client.local_ip}:{self.sip_client.local_port}")
-            logger.info(f"- Device emulation: {self.settings.device.user_agent}")
             logger.info(f"- Web server: http://{self.settings.server.host}:{self.settings.server.port}")
             
         except Exception as e:
             logger.error(f"Failed to start agent: {e}")
             self.stop()
             raise
+    
+    def _start_multi_tenant_mode(self, request_headers: Optional[Dict[str, str]] = None):
+        """Start multi-tenant mode."""
+        logger.info("🔥 Starting multi-tenant mode")
+        logger.info("📋 Use /users API endpoints to manage SIP configurations")
+        logger.info("📋 Check /admin/status for system status")
+        
+        # Try to migrate legacy configuration if available
+        self._auto_migrate_legacy_config()
+    
+    def _start_single_tenant_mode(self, request_headers: Optional[Dict[str, str]] = None):
+        """Start single-tenant mode."""
+        logger.info("📞 Starting single-tenant mode")
+        
+        # Start SIP client
+        self.sip_client.start(request_headers)
+        
+        # Attempt registration (optional for outbound-only mode)
+        try:
+            self.sip_client.register()
+            logger.info(f"- SIP client: {self.sip_client.local_ip}:{self.sip_client.local_port}")
+            logger.info(f"- Device emulation: {self.settings.device.user_agent}")
+        except Exception as e:
+            logger.warning(f"SIP registration failed (continuing in outbound-only mode): {e}")
+    
+    def _auto_migrate_legacy_config(self):
+        """Automatically migrate legacy config to primary user if available."""
+        try:
+            # Check if we have legacy environment variables
+            if not (os.getenv('ZOHO_SIP_USERNAME') and os.getenv('ZOHO_SIP_PASSWORD')):
+                logger.info("No legacy configuration found to migrate")
+                return
+            
+            from callie_caller.config.firebase_service import get_firebase_service
+            firebase_service = get_firebase_service()
+            
+            # Check if primary user already exists
+            existing_user = firebase_service.get_user_config("primary")
+            if existing_user:
+                logger.info(f"✅ Primary user already exists: {existing_user.sip.display_name}")
+                return
+            
+            # Create primary user from legacy config
+            logger.info("🔄 Auto-migrating legacy configuration to primary user...")
+            
+            from scripts.migrate_to_multitenant import create_primary_user, load_legacy_config
+            legacy_config = load_legacy_config()
+            
+            if legacy_config:
+                user_config = create_primary_user(legacy_config, "primary")
+                success = firebase_service.create_user_config(user_config)
+                
+                if success:
+                    logger.info(f"✅ Auto-migrated legacy config to primary user: {user_config.sip.display_name}")
+                    logger.info("💡 Connect the primary user: curl -X POST http://localhost:8080/users/primary/sip/connect")
+                else:
+                    logger.error("❌ Failed to auto-migrate legacy configuration")
+            
+        except Exception as e:
+            logger.warning(f"Auto-migration failed: {e}")
             
     def stop(self) -> None:
         """Stop the Callie Agent."""
         logger.info("Stopping Callie Agent...")
         
-        # Stop SIP client
-        if self.sip_client:
-            self.sip_client.stop()
+        if self.multi_tenant_mode:
+            # Stop all user SIP clients
+            if self.multi_tenant_manager:
+                for user_id, sip_client in self.multi_tenant_manager.user_sip_clients.items():
+                    try:
+                        sip_client.stop()
+                        logger.info(f"Stopped SIP client for user {user_id}")
+                    except Exception as e:
+                        logger.error(f"Error stopping SIP client for user {user_id}: {e}")
+        else:
+            # Stop single SIP client
+            if self.sip_client:
+                self.sip_client.stop()
         
         # Stop event loop
         if self._loop and self._loop.is_running():
@@ -113,7 +226,10 @@ class CallieAgent:
     
     def enable_test_audio_mode(self, test_audio_file: str = None) -> bool:
         """Enable test audio mode to inject known audio instead of AI."""
-        if self.sip_client:
+        if self.multi_tenant_mode:
+            logger.warning("Test audio mode not implemented for multi-tenant mode yet")
+            return False
+        elif self.sip_client:
             success = self.sip_client.enable_test_mode(test_audio_file)
             if success:
                 logger.info("🧪 Test audio mode enabled for agent")
@@ -121,7 +237,7 @@ class CallieAgent:
         logger.error("❌ Cannot enable test mode - SIP client not available")
         return False
         
-    def make_call(self, phone_number: str, message: Optional[str] = None, request_headers: Optional[Dict[str, str]] = None) -> bool:
+    def make_call(self, phone_number: str, message: Optional[str] = None, request_headers: Optional[Dict[str, str]] = None, user_id: str = "primary") -> bool:
         """
         Make an outbound call with AI conversation.
         
@@ -129,19 +245,51 @@ class CallieAgent:
             phone_number: Target phone number
             message: Optional initial AI message
             request_headers: Optional request headers for IP discovery
+            user_id: User ID for multi-tenant mode (defaults to "primary")
             
         Returns:
             bool: True if call was successful
         """
         logger.info(f"📞 Making call to {phone_number}")
         
-        # Refresh public IP if headers are provided
-        if request_headers:
-            # public_ip = get_public_ip(request_headers) # No longer needed
-            # if public_ip:
-            #     self.sip_client.public_ip = public_ip
-            pass # No longer needed
+        if self.multi_tenant_mode:
+            return self._make_call_multi_tenant(phone_number, message, user_id)
+        else:
+            return self._make_call_single_tenant(phone_number, message, request_headers)
+    
+    def _make_call_multi_tenant(self, phone_number: str, message: Optional[str], user_id: str) -> bool:
+        """Make call in multi-tenant mode."""
+        if not self.multi_tenant_manager:
+            logger.error("Multi-tenant manager not available")
+            return False
         
+        # Get user's SIP client
+        sip_client = self.multi_tenant_manager.user_sip_clients.get(user_id)
+        if not sip_client or not sip_client.running:
+            logger.error(f"User {user_id} SIP client not connected")
+            return False
+        
+        if not sip_client.registered:
+            logger.error(f"User {user_id} SIP client not registered")
+            return False
+        
+        # Make the call
+        success = sip_client.make_call(phone_number, message)
+        if success:
+            # Track the call
+            call_id = f"call-{user_id}-{int(time.time())}"
+            self.multi_tenant_manager.active_calls[call_id] = {
+                'user_id': user_id,
+                'target_number': phone_number,
+                'message': message,
+                'start_time': time.time(),
+                'status': 'initiated'
+            }
+        
+        return success
+    
+    def _make_call_single_tenant(self, phone_number: str, message: Optional[str], request_headers: Optional[Dict[str, str]]) -> bool:
+        """Make call in single-tenant mode."""
         # Create a new call
         call = SipCall(
             call_id=f"call-{random.randint(100000, 999999)}-{int(time.time())}",
@@ -158,55 +306,28 @@ class CallieAgent:
         success = self.sip_client.make_call(call)
         
         if success and call.state == CallState.CONNECTED:
-            logger.info(f"🎉 Call {call.call_id} connected successfully!")
+            # Track the call for conversation handling
+            self.call_conversations[call.call_id] = f"outbound-{int(time.time())}-{phone_number}"
             
-            # 🔧 FIX: Run async conversation in event loop
-            try:
-                if self._loop and self._loop.is_running():
-                    # Schedule the conversation in the existing event loop
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._handle_call_conversation(call),
-                        self._loop
-                    )
-                    
-                    # Wait for the conversation to complete
-                    future.result()  # This will block until call ends
-                    
-                else:
-                    # No event loop running, create a new one
-                    logger.info("🔄 Creating new event loop for call conversation...")
-                    asyncio.run(self._handle_call_conversation(call))
-                    
-            except Exception as e:
-                logger.error(f"Error in async call handling: {e}")
-                call.fail(f"Async error: {e}")
-            
-            logger.info(f"📞 Call {call.call_id} conversation completed")
-            return True
-            
+            # Start audio conversation in the event loop
+            if self._loop and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._handle_call_conversation(call),
+                    self._loop
+                )
+                logger.info(f"🔄 Call conversation scheduled in event loop")
+        
+        return success
+    
+    def is_call_active(self) -> bool:
+        """Check if there are any active calls."""
+        if self.multi_tenant_mode:
+            return len(self.multi_tenant_manager.active_calls) > 0 if self.multi_tenant_manager else False
         else:
-            if not success:
-                logger.error(f"❌ Call to {phone_number} failed to connect")
-            elif call.state == CallState.RINGING:
-                logger.info(f"📞 Call to {phone_number} is ringing but not answered")
-                
-                # 🔧 FIX: For ringing calls, still run conversation monitoring  
-                try:
-                    if self._loop and self._loop.is_running():
-                        future = asyncio.run_coroutine_threadsafe(
-                            self._handle_call_conversation(call),
-                            self._loop
-                        )
-                        future.result()
-                    else:
-                        asyncio.run(self._handle_call_conversation(call))
-                except Exception as e:
-                    logger.error(f"Error in ringing call handling: {e}")
-                    
-            return False
+            return len(getattr(self.sip_client, 'active_calls', {})) > 0
         
     def _handle_incoming_call(self, call: SipCall) -> None:
-        """Handle incoming SIP call."""
+        """Handle incoming SIP call in single-tenant mode."""
         logger.info(f"Incoming call from {call.target_number}")
         
         # Start conversation
@@ -230,7 +351,7 @@ class CallieAgent:
         logger.info(f"Answered call {call.call_id} with greeting: {greeting}")
         
         if call.state == CallState.CONNECTED:
-            # 🔧 FIX: Properly handle async conversation for incoming calls
+            # Handle async conversation for incoming calls
             try:
                 if self._loop and self._loop.is_running():
                     # Schedule the conversation in the existing event loop
@@ -239,19 +360,14 @@ class CallieAgent:
                         self._loop
                     )
                     logger.info(f"🔄 Incoming call conversation scheduled in event loop")
-                    # Don't wait here - let it run asynchronously
                 else:
-                    # No event loop running, this shouldn't happen but handle gracefully
                     logger.error("⚠️  No event loop available for incoming call conversation")
                     call.hangup()
                     
             except Exception as e:
                 logger.error(f"Error starting incoming call conversation: {e}")
                 call.hangup()
-
-    # The _monitor_call method is no longer needed as the SIP client now blocks
-    # until a call is connected or fails. We can remove it.
-        
+                
     async def _handle_call_conversation(self, call: SipCall) -> None:
         """Handle conversation for a connected call."""
         logger.info(f"🎤 Starting conversation for call {call.call_id}")
@@ -283,145 +399,59 @@ class CallieAgent:
                 logger.warning(f"⚠️  Call {call.call_id} not connected when starting conversation (state: {call.state.value})")
                 return
             
-            # 🔔 Monitor call state and exit when call ends
+            # Monitor call state and exit when call ends
             logger.info(f"🔔 Monitoring call {call.call_id} - will exit when call ends...")
             
             # Keep the conversation active while call is connected
             conversation_time = 0
-            no_audio_time = 0
-            last_audio_packets = 0
+            while call.state == CallState.CONNECTED and conversation_time < 1800:  # 30 minute max
+                await asyncio.sleep(5)  # Check every 5 seconds
+                conversation_time += 5
+                
+                if conversation_time % 60 == 0:  # Log every minute
+                    logger.info(f"🔔 Call {call.call_id} active for {conversation_time // 60} minutes")
             
-            while call.state == CallState.CONNECTED:
-                await asyncio.sleep(1.0)  # Check every second
-                conversation_time += 1
-                
-                # Check for audio activity to detect if call is actually active
-                if self.sip_client.rtp_bridge:
-                    current_packets = self.sip_client.rtp_bridge.packets_forwarded
-                    if current_packets == last_audio_packets:
-                        no_audio_time += 1
-                    else:
-                        no_audio_time = 0  # Reset if we got audio
-                    last_audio_packets = current_packets
-                    
-                    # If no audio for too long, might be voicemail or dead call
-                    if no_audio_time > 10 and conversation_time > 15:  # No audio for 10+ seconds after 15 seconds
-                        logger.warning(f"⚠️  No audio activity for {no_audio_time}s - possible voicemail or dead call")
-                        if no_audio_time > 30:  # 30 seconds of silence
-                            logger.info(f"📞 Hanging up due to extended silence (likely voicemail)")
-                            call.hangup()
-                            break
-                
-                # Auto hangup after reasonable time limit
-                if conversation_time > 300:  # 5 minutes max
-                    logger.info(f"⏰ Call {call.call_id} reached maximum duration, hanging up")
-                    call.hangup()
-                    break
-                
-                # Log periodic status
-                duration = call.duration
-                if conversation_time % 10 == 0:  # Every 10 seconds
-                    logger.info(f"📞 Call active for {duration:.0f} seconds - state: {call.state.value}")
-                    
-                    # Enhanced bridge statistics
-                    if self.sip_client.rtp_bridge:
-                        bridge_stats = {
-                            'packets_forwarded': self.sip_client.rtp_bridge.packets_forwarded,
-                            'packets_to_ai': self.sip_client.rtp_bridge.packets_to_ai,
-                            'packets_from_ai': self.sip_client.rtp_bridge.packets_from_ai,
-                            'caller_packets_recorded': self.sip_client.rtp_bridge.caller_packets_recorded,
-                            'remote_packets_recorded': self.sip_client.rtp_bridge.remote_packets_recorded
-                        }
-                        
-                        logger.info(f"🌉 Bridge stats: {bridge_stats['packets_forwarded']} received, {bridge_stats['packets_to_ai']} to AI, {bridge_stats['packets_from_ai']} from AI")
-                        logger.info(f"🔇 Silence time: {no_audio_time}s")
-                        
-                        if bridge_stats['packets_forwarded'] == 0:
-                            # Enhanced diagnostics for no packet flow
-                            logger.warning("⚠️  NO RTP PACKETS through bridge - audio may not be flowing correctly")
-                            logger.info("🔧 Troubleshooting suggestions:")
-                            logger.info("   • Check if remote endpoint is sending to the correct IP/port")
-                            logger.info("   • Verify NAT/firewall allows UDP traffic on bridge port")
-                            logger.info(f"   • Bridge is listening on ALL INTERFACES:{self.sip_client.rtp_bridge.local_port}")
-                            
-                            if self.sip_client.rtp_bridge.remote_endpoint:
-                                logger.info(f"   • Remote endpoint: {self.sip_client.rtp_bridge.remote_endpoint.ip}:{self.sip_client.rtp_bridge.remote_endpoint.port}")
-                            else:
-                                logger.warning("   • No remote endpoint configured yet!")
-                        else:
-                            logger.info(f"✅ Audio flowing! WAV Recording: {bridge_stats['caller_packets_recorded']} caller, {bridge_stats['remote_packets_recorded']} remote packets to WAV files")
-                    else:
-                        logger.warning("⚠️  No RTP bridge active - this shouldn't happen during a call")
-                
-                # Additional early logging for first few seconds
-                elif conversation_time <= 5:
-                    logger.info(f"🕐 Call conversation active for {conversation_time} seconds")
+            logger.info(f"🔚 Call {call.call_id} conversation ended (Duration: {conversation_time}s, State: {call.state.value})")
             
-            # Call ended - log the reason
-            logger.info(f"📞 Call {call.call_id} ended with state: {call.state.value}")
-            logger.info(f"⏱️  Total call duration: {call.duration:.1f} seconds")
+            # Clean up
+            if call.state == CallState.CONNECTED:
+                call.hangup()
+                logger.info(f"📞 Hung up call {call.call_id}")
             
-        except Exception as e:
-            logger.error(f"💥 Error in call conversation: {e}")
-            import traceback
-            logger.error(f"📋 Stack trace: {traceback.format_exc()}")
-            call.fail(f"Conversation error: {e}")
-        finally:
-            # Ensure proper cleanup
-            try:
-                logger.info(f"🧹 Cleaning up call {call.call_id}")
-                
-                # Stop audio conversation
+            # Stop audio conversation
+            if self.sip_client:
                 await self.sip_client.stop_audio_conversation()
-                logger.info(f"🔇 Audio conversation stopped for {call.call_id}")
                 
-                # Properly terminate the call if not already ended
-                if call.state not in [CallState.ENDED, CallState.FAILED]:
-                    self.sip_client.terminate_call(call)
-                    logger.info(f"📞 Call {call.call_id} properly terminated")
-                    
-            except Exception as cleanup_error:
-                logger.error(f"💥 Error during call cleanup: {cleanup_error}")
-    
+        except Exception as e:
+            logger.error(f"💥 Error in call conversation {call.call_id}: {e}")
+            try:
+                call.hangup()
+                if self.sip_client:
+                    await self.sip_client.stop_audio_conversation()
+            except:
+                pass  # Best effort cleanup
+                
     def _is_voicemail_call(self, call: SipCall) -> bool:
-        """Detect if call went to voicemail based on various indicators."""
-        # Check call duration - if "connected" immediately, likely voicemail
-        if call.state == CallState.CONNECTED and call.duration < 2:
-            logger.info("🔍 Call connected very quickly - checking for voicemail...")
-            
-            # Check if we have RTP bridge with no bidirectional audio
-            if self.sip_client.rtp_bridge:
-                # Wait a moment to see if we get actual conversation audio
-                time.sleep(2)
-                
-                # If we only get audio in one direction or very regular patterns, likely voicemail
-                packets_forwarded = self.sip_client.rtp_bridge.packets_forwarded
-                packets_to_ai = self.sip_client.rtp_bridge.packets_to_ai
-                
-                if packets_forwarded > 0 and packets_to_ai == 0:
-                    logger.info("🔍 Receiving audio but not sending to AI - likely voicemail greeting")
-                    return True
-                    
-                if packets_forwarded > 50:  # Lots of one-way audio quickly
-                    logger.info("🔍 High volume one-way audio - likely voicemail greeting")
-                    return True
-        
+        """Detect if call went to voicemail (placeholder implementation)."""
+        # This is a placeholder - in reality you'd analyze audio patterns
+        # For now, return False to assume all calls are answered
         return False
         
     async def _test_live_api(self) -> None:
         """Test Live API connection independently."""
         try:
-            # Ensure audio bridge is initialized
-            if not self.sip_client.audio_bridge:
-                 self.sip_client.audio_bridge = self.sip_client.get_audio_bridge()
+            if not self.multi_tenant_mode and self.sip_client:
+                # Ensure audio bridge is initialized
+                if not self.sip_client.audio_bridge:
+                     self.sip_client.audio_bridge = self.sip_client.get_audio_bridge()
 
-            if self.sip_client.audio_bridge:
-                logger.info("🔬 Testing Live API connection...")
-                result = await self.sip_client.audio_bridge.test_live_api_connection()
-                if result:
-                    logger.info("✅ Live API connection test successful!")
-                else:
-                    logger.error("❌ Live API connection test failed!")
+                if self.sip_client.audio_bridge:
+                    logger.info("🔬 Testing Live API connection...")
+                    result = await self.sip_client.audio_bridge.test_live_api_connection()
+                    if result:
+                        logger.info("✅ Live API connection test successful!")
+                    else:
+                        logger.error("❌ Live API connection test failed!")
         except Exception as e:
             logger.error(f"💥 Live API test error: {e}")
             
@@ -440,17 +470,75 @@ class CallieAgent:
     def _setup_flask_routes(self) -> None:
         """Setup Flask routes for webhooks and API."""
         
+        # Add multi-tenant routes if enabled
+        if self.multi_tenant_mode and self.multi_tenant_manager:
+            self.multi_tenant_manager.setup_routes(self.app)
+        
+        @self.app.route('/', methods=['GET'])
+        def root():
+            """Root endpoint with system information."""
+            mode_info = {
+                'mode': 'multi-tenant' if self.multi_tenant_mode else 'single-tenant (legacy)',
+                'firebase_enabled': self.multi_tenant_mode
+            }
+            
+            if self.multi_tenant_mode:
+                mode_info.update({
+                    'total_users': len(self.multi_tenant_manager.firebase_service.list_active_users()) if self.multi_tenant_manager else 0,
+                    'active_sip_clients': len(self.multi_tenant_manager.user_sip_clients) if self.multi_tenant_manager else 0,
+                    'endpoints': {
+                        'users': '/users - User management',
+                        'admin': '/admin/status - System status',
+                        'legacy_health': '/health - Legacy health check'
+                    }
+                })
+            else:
+                mode_info.update({
+                    'sip_registered': getattr(self.sip_client, 'registered', False),
+                    'endpoints': {
+                        'health': '/health - Health check',
+                        'call': '/call - Make outbound call',
+                        'stats': '/stats - Agent statistics'
+                    }
+                })
+            
+            return jsonify({
+                'service': 'Callie Caller AI Voice Agent',
+                'version': '1.2.0',
+                'status': 'healthy' if self.running else 'stopped',
+                **mode_info
+            })
+        
         @self.app.route('/health', methods=['GET'])
         def health_check():
             """Health check endpoint."""
-            return jsonify({
-                'status': 'healthy',
-                'agent_running': self.running,
-                'sip_registered': getattr(self.sip_client, 'registered', False),
-                'active_calls': len(getattr(self.sip_client, 'active_calls', {})),
-                'active_conversations': len(self.conversation_manager.active_conversations)
-            })
-            
+            if self.multi_tenant_mode:
+                return jsonify({
+                    'status': 'healthy',
+                    'mode': 'multi-tenant',
+                    'agent_running': self.running,
+                    'firebase_connected': bool(self.multi_tenant_manager.firebase_service.db) if self.multi_tenant_manager else False,
+                    'total_users': len(self.multi_tenant_manager.firebase_service.list_active_users()) if self.multi_tenant_manager else 0,
+                    'active_sip_clients': len(self.multi_tenant_manager.user_sip_clients) if self.multi_tenant_manager else 0,
+                    'active_conversations': len(self.conversation_manager.active_conversations)
+                })
+            else:
+                return jsonify({
+                    'status': 'healthy',
+                    'mode': 'single-tenant (legacy)',
+                    'agent_running': self.running,
+                    'sip_registered': getattr(self.sip_client, 'registered', False),
+                    'active_calls': len(getattr(self.sip_client, 'active_calls', {})),
+                    'active_conversations': len(self.conversation_manager.active_conversations)
+                })
+        
+        # Legacy single-tenant endpoints
+        if not self.multi_tenant_mode:
+            self._setup_legacy_routes()
+    
+    def _setup_legacy_routes(self):
+        """Setup legacy single-tenant routes."""
+        
         @self.app.route('/sms', methods=['POST'])
         def handle_sms():
             """Handle incoming SMS from Zoho Voice."""
@@ -584,7 +672,8 @@ class CallieAgent:
             
             return jsonify({
                 'service': 'Callie Caller AI Voice Agent',
-                'version': '1.0.0',
+                'version': '1.2.0',
+                'mode': 'single-tenant (legacy)',
                 'capabilities': {
                     'outbound_calls': True,
                     'inbound_calls': True,
@@ -651,12 +740,26 @@ class CallieAgent:
             
     def get_status(self) -> Dict[str, Any]:
         """Get current agent status."""
-        return {
+        base_status = {
             'running': self.running,
-            'sip_registered': getattr(self.sip_client, 'registered', False),
-            'local_endpoint': f"{getattr(self.sip_client, 'local_ip', 'unknown')}:{getattr(self.sip_client, 'local_port', 'unknown')}",
-            'device_emulation': self.settings.device.user_agent,
-            'active_calls': len(getattr(self.sip_client, 'active_calls', {})),
+            'mode': 'multi-tenant' if self.multi_tenant_mode else 'single-tenant (legacy)',
             'active_conversations': len(self.conversation_manager.active_conversations),
             'total_conversations': len(self.conversation_manager.conversation_history)
-        } 
+        }
+        
+        if self.multi_tenant_mode:
+            base_status.update({
+                'firebase_connected': bool(self.multi_tenant_manager.firebase_service.db) if self.multi_tenant_manager else False,
+                'total_users': len(self.multi_tenant_manager.firebase_service.list_active_users()) if self.multi_tenant_manager else 0,
+                'active_sip_clients': len(self.multi_tenant_manager.user_sip_clients) if self.multi_tenant_manager else 0,
+                'active_calls': len(self.multi_tenant_manager.active_calls) if self.multi_tenant_manager else 0
+            })
+        else:
+            base_status.update({
+                'sip_registered': getattr(self.sip_client, 'registered', False),
+                'local_endpoint': f"{getattr(self.sip_client, 'local_ip', 'unknown')}:{getattr(self.sip_client, 'local_port', 'unknown')}",
+                'device_emulation': self.settings.device.user_agent,
+                'active_calls': len(getattr(self.sip_client, 'active_calls', {}))
+            })
+        
+        return base_status 
