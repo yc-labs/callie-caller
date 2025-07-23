@@ -1,7 +1,7 @@
 import subprocess
 import logging
 import socket
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -24,34 +24,34 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def get_public_ip() -> Optional[str]:
+def get_public_ip(request_headers: Optional[Dict[str, str]] = None) -> Optional[str]:
     """
-    Retrieves the public IP address of the machine using an external service.
-    This is crucial for NAT traversal, as this IP will be advertised in the SDP
-    so the remote party knows where to send RTP (audio) packets.
+    Retrieves the public IP address, prioritizing Cloud Run headers.
     """
+    # 1. Check for Cloud Run / Load Balancer headers first
+    if request_headers:
+        forwarded_for = request_headers.get('X-Forwarded-For')
+        if forwarded_for:
+            # The header can contain a comma-separated list of IPs.
+            # The first one is the original client IP.
+            public_ip = forwarded_for.split(',')[0].strip()
+            logger.info(f"🌍 Public IP from X-Forwarded-For: {public_ip}")
+            return public_ip
+
+    # 2. Fallback to external service if headers are not available
     try:
-        # Using 'curl' to an external service is a common way to find the public IP.
-        # We use a short timeout to prevent long delays.
         ip = subprocess.check_output(
             ['curl', '-s', '--max-time', '3', 'https://api.ipify.org'],
             stderr=subprocess.DEVNULL
         ).decode('utf-8').strip()
         
-        # Basic validation of the result
         if ip and '.' in ip:
-            logger.info(f"🌍 Public IP discovered: {ip}")
+            logger.info(f"🌍 Public IP from ipify.org: {ip}")
             return ip
         logger.warning("Failed to parse public IP from service response.")
         return None
-    except FileNotFoundError:
-        logger.warning("curl command not found, cannot determine public IP.")
-        return None
-    except subprocess.CalledProcessError:
-        logger.warning("Calling public IP service failed.")
-        return None
     except Exception as e:
-        logger.error(f"An unexpected error occurred while getting public IP: {e}")
+        logger.error(f"Failed to get public IP from ipify.org: {e}")
         return None
 
 

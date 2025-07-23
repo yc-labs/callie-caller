@@ -134,11 +134,11 @@ class SipClient:
             
         logger.info("🔇 Audio conversation stopped")
 
-    def start(self) -> bool:
+    def start(self, request_headers: Optional[Dict[str, str]] = None) -> bool:
         """Start the SIP client and its message listener."""
         try:
             # Discover public IP for NAT traversal
-            self.public_ip = get_public_ip()
+            self.public_ip = get_public_ip(request_headers)
             
             # Create UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

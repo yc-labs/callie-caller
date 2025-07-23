@@ -11,10 +11,11 @@ from typing import Optional, Dict, Any, Callable
 from flask import Flask, request, Response, jsonify
 import random
 
-from callie_caller.config import get_settings
 from callie_caller.sip.client import SipClient
-from callie_caller.ai.conversation import ConversationManager
 from callie_caller.sip.call import SipCall, CallState
+from callie_caller.ai.conversation import ConversationManager
+# from callie_caller.utils import get_public_ip - No longer needed, IP is handled by host networking
+from callie_caller.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class CallieAgent:
         
         logger.info("Callie Agent initialized")
         
-    def start(self) -> None:
+    def start(self, request_headers: Optional[Dict[str, str]] = None) -> None:
         """Start the AI voice agent."""
         if self.running:
             logger.warning("Agent is already running")
@@ -58,7 +59,7 @@ class CallieAgent:
         
         try:
             # Start SIP client
-            self.sip_client.start()
+            self.sip_client.start(request_headers)
             
             # Attempt registration (optional for outbound-only mode)
             try:
@@ -120,18 +121,26 @@ class CallieAgent:
         logger.error("❌ Cannot enable test mode - SIP client not available")
         return False
         
-    def make_call(self, phone_number: str, message: Optional[str] = None) -> bool:
+    def make_call(self, phone_number: str, message: Optional[str] = None, request_headers: Optional[Dict[str, str]] = None) -> bool:
         """
         Make an outbound call with AI conversation.
         
         Args:
             phone_number: Target phone number
             message: Optional initial AI message
+            request_headers: Optional request headers for IP discovery
             
         Returns:
             bool: True if call was successful
         """
         logger.info(f"📞 Making call to {phone_number}")
+        
+        # Refresh public IP if headers are provided
+        if request_headers:
+            # public_ip = get_public_ip(request_headers) # No longer needed
+            # if public_ip:
+            #     self.sip_client.public_ip = public_ip
+            pass # No longer needed
         
         # Create a new call
         call = SipCall(
@@ -492,14 +501,14 @@ class CallieAgent:
                 if not number:
                     return jsonify({'error': 'Phone number required'}), 400
                     
-                call = self.make_call(number, message)
+                success = self.make_call(number, message, dict(request.headers))
                 
-                if call:
+                if success:
                     return jsonify({
                         'success': True,
-                        'call_id': call.call_id,
-                        'target': call.target_number,
-                        'state': call.state.value
+                        'message': f'Call initiated to {number}',
+                        'target': number,
+                        'status': 'completed'
                     })
                 else:
                     return jsonify({'error': 'Failed to make call'}), 500

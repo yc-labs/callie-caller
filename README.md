@@ -1,485 +1,110 @@
 # Callie Caller - AI Voice Agent
 
-A production-ready AI voice assistant that makes and receives phone calls using SIP protocol and Google's Gemini Live API for natural voice conversations.
+A production-ready AI voice assistant that makes and receives phone calls using the SIP protocol and Google's Gemini API for natural, real-time voice conversations. This project is designed for a robust, container-based deployment on a Google Compute Engine VM.
 
 ## Features
 
-- **Real-time Voice Conversations**: Natural AI-powered phone conversations
-- **SIP Integration**: Compatible with standard SIP providers (tested with Zoho Voice)
-- **Production-ready**: Proper error handling, logging, and input validation
-- **Audio Processing**: High-quality audio codec conversion and streaming
-- **NAT Traversal**: Automatic UPnP configuration for firewall compatibility
-- **Web API**: RESTful endpoints for making calls and monitoring
-- **Call Recording**: Automatic WAV recording of conversations
-- **Scalable Architecture**: Modular design for easy customization
-- **Docker Support**: Containerized deployment with Google Artifact Registry
-- **Version Control**: Semantic versioning with automated CI/CD
+- **Real-time Voice Conversations**: Natural, real-time AI-powered phone conversations.
+- **SIP Integration**: Compatible with standard SIP providers (e.g., Zoho Voice).
+- **Docker-on-VM Deployment**: The best of both worlds: a simple, reliable single-VM network architecture with a clean, portable, and consistent containerized application.
+- **Automated Deployment**: A single script to provision the VM, build the Docker image, push it to a registry, and run it on the VM.
+- **Centralized Logging**: All container logs can be viewed via the `deploy-vm.sh` script.
 
 ## Architecture
 
-### Core Components
+The architecture is a simple and powerful Docker-on-VM model:
 
-1. **SIP Client**: Handles SIP registration and call management
-2. **RTP Bridge**: Real-time audio forwarding and processing
-3. **AI Audio Bridge**: Interface with Google Gemini Live API
-4. **Audio Codec Processing**: Converts between telephony codecs and PCM
-5. **Agent Orchestrator**: Main control system with web interface
+1.  **Compute Engine VM**: A single VM (e.g., `e2-small`) with a static public IP address serves as the host. Docker is installed on this VM.
+2.  **Google Artifact Registry**: The production Docker image is stored and versioned in Google Artifact Registry.
+3.  **Docker Container**: The application runs inside a Docker container on the VM. The container uses **host networking**, which allows the SIP and RTP ports to be exposed directly without complex port mapping.
+4.  **Firewall Rules**: Google Cloud firewall rules allow inbound UDP traffic for SIP (port 5060) and RTP (ports 10000-10100) directly to the VM.
+5.  **`.env` File**: Secrets are fetched from Google Secret Manager during the initial VM provisioning and stored in an `.env` file, which is then used by the Docker container.
 
-### Audio Processing Pipeline
-
-**Incoming Audio**: Phone → SIP → RTP Bridge → Codec Conversion → AI Bridge → Gemini Live API  
-**Outgoing Audio**: Gemini Live API → AI Bridge → RTP Bridge → Codec Conversion → SIP → Phone
-
-## Installation
-
-### Prerequisites
-
-- Python 3.8 or higher
-- Docker and Docker Compose (for containerized deployment)
-- SIP provider account (Zoho Voice recommended)
-- Google AI API key with Gemini Live access
-- Google Cloud Project (for container registry)
-
-### Local Development Setup
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd callie-caller
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp config.env.template .env
-# Edit .env with your credentials
-```
-
-### Docker Deployment
-
-#### Quick Start with Docker
-
-```bash
-# Build and run locally
-docker-compose up -d
-
-# Check status
-docker-compose ps
-
-# View logs
-docker-compose logs -f callie-caller
-```
-
-#### Production Deployment with Google Artifact Registry
-
-```bash
-# Set up Google Artifact Registry (one-time setup)
-./deploy.sh --project your-gcp-project setup
-
-# Build and push to registry
-./deploy.sh --project your-gcp-project --version 1.0.0 build
-
-# Deploy to production
-./deploy.sh --project your-gcp-project --version 1.0.0 deploy
-
-# Check deployment status
-./deploy.sh status
-```
-
-## Configuration
-
-Create a `.env` file with your credentials:
-
-```bash
-# SIP Provider Configuration
-ZOHO_SIP_DOMAIN=us3-proxy2.zohovoice.com
-ZOHO_SIP_USERNAME=your_sip_username
-ZOHO_SIP_PASSWORD=your_sip_password
-
-# Google AI Configuration
-GOOGLE_API_KEY=your_gemini_api_key
-
-# Optional Configuration
-USE_UPNP=true
-LOG_LEVEL=INFO
-SERVER_PORT=8080
-
-# Docker/Production Configuration
-GCP_PROJECT_ID=your-gcp-project
-GAR_REGION=us-central1
-GAR_REPOSITORY=callie-caller
-```
-
-## Usage
-
-### Command Line
-
-```bash
-# Start the agent in server mode
-python main.py
-
-# Make a test call
-python main.py --call +1234567890 --message "Hello, this is a test call"
-
-# Enable debug logging
-python main.py --debug
-
-# Validate configuration
-python main.py --config-check
-
-# Show version information
-python main.py --version
-```
-
-### Docker Usage
-
-```bash
-# Development with local build
-docker-compose up -d
-
-# Production with GAR images
-export GAR_IMAGE=us-central1-docker.pkg.dev/your-project/callie-caller/callie-caller:1.0.0
-docker-compose -f docker-compose.prod.yml up -d
-
-# Using deployment script (recommended)
-./deploy.sh --project your-project deploy
-```
-
-### Web API
-
-Start the server and use the REST API:
-
-```bash
-# Make an outbound call
-curl -X POST http://localhost:8080/call \
-  -H "Content-Type: application/json" \
-  -d '{"number": "+1234567890", "message": "Hello from AI!"}'
-
-# Health check
-curl http://localhost:8080/health
-
-# Get conversation history
-curl http://localhost:8080/conversations
-
-# Agent statistics
-curl http://localhost:8080/stats
-```
-
-### Python Integration
-
-```python
-from callie_caller import CallieAgent
-
-# Initialize the agent
-agent = CallieAgent()
-agent.start()
-
-# Make a call with validation
-success = agent.make_call("+1234567890", "Hello, this is your AI assistant!")
-
-# Cleanup
-agent.stop()
-```
-
-## Version Management
-
-### Semantic Versioning
-
-```bash
-# Show current version
-python scripts/version.py --show
-
-# Bump patch version (1.0.0 → 1.0.1)
-python scripts/version.py --bump patch
-
-# Bump minor version (1.0.0 → 1.1.0)
-python scripts/version.py --bump minor
-
-# Create a full release (bump, commit, tag, push)
-python scripts/version.py --release patch
-```
-
-### Building and Deploying
-
-```bash
-# Build specific version
-./build.sh --version 1.0.1 --project your-project --push
-
-# Build from git tag
-./build.sh --project your-project --push --latest
-
-# Complete deployment workflow
-python scripts/version.py --release patch
-./deploy.sh --project your-project build deploy
-```
+This model is robust, secure, and easy to manage.
 
 ## Deployment Guide
 
-### Google Cloud Setup
+This project is designed to be deployed to a Google Compute Engine VM as a Docker container. The `deploy-vm.sh` script automates the entire process.
 
-1. **Create a Google Cloud Project**
-2. **Enable APIs and set up Artifact Registry**:
-   ```bash
-   ./deploy.sh --project your-project setup
-   ```
+### Prerequisites
 
-3. **Configure authentication**:
-   ```bash
-   gcloud auth login
-   gcloud auth configure-docker us-central1-docker.pkg.dev
-   ```
+1.  **Google Cloud Project**: A GCP project with billing enabled.
+2.  **gcloud CLI**: The Google Cloud CLI installed and authenticated (`gcloud auth login`).
+3.  **Docker**: Docker must be running on your local machine to build the image.
+4.  **APIs Enabled**: Ensure the Compute Engine API, Secret Manager API, and Artifact Registry API are enabled.
+5.  **Secrets Configured**: You must have the following secrets stored in Google Cloud Secret Manager:
+    *   `zoho-sip-username`
+    *   `zoho-sip-password`
+    *   `gemini-api-key`
 
-### Production Deployment
+### One-Step Deployment
 
-1. **Prepare environment file**:
-   ```bash
-   cp config.env.template .env
-   # Edit .env with production credentials
-   ```
-
-2. **Deploy application**:
-   ```bash
-   # Build and deploy specific version
-   ./deploy.sh --project your-project --version 1.0.0 build deploy
-   
-   # Or deploy latest
-   ./deploy.sh --project your-project deploy
-   ```
-
-3. **Monitor deployment**:
-   ```bash
-   # Check status
-   ./deploy.sh status
-   
-   # View logs
-   ./deploy.sh logs
-   
-   # Health check
-   curl http://localhost:8080/health
-   ```
-
-### CI/CD Integration
-
-The project includes scripts for automated CI/CD:
-
-- **Version Management**: `scripts/version.py` for semantic versioning
-- **Build Script**: `build.sh` for Docker image creation
-- **Deployment Script**: `deploy.sh` for complete deployment automation
-
-Example workflow:
-```bash
-# 1. Create release
-python scripts/version.py --release patch
-
-# 2. Build and push
-./build.sh --project your-project --push --latest
-
-# 3. Deploy
-./deploy.sh --project your-project deploy
-```
-
-## API Reference
-
-### CallieAgent
-
-```python
-agent = CallieAgent()
-
-# Start the agent
-agent.start()
-
-# Make a call with validation
-agent.make_call(phone_number: str, message: Optional[str] = None) -> bool
-
-# Stop the agent
-agent.stop()
-```
-
-### REST Endpoints
-
-- `GET /health` - Health check
-- `POST /call` - Make outbound call
-- `POST /sms` - SMS webhook handler
-- `GET /conversations` - Conversation history
-- `GET /stats` - Agent statistics
-
-### Version Information
-
-```python
-from callie_caller import __version__, get_version_info
-
-print(f"Version: {__version__}")
-print(f"Detailed info: {get_version_info()}")
-```
-
-## Configuration Options
-
-### SIP Settings
-
-- **Server**: SIP proxy server address
-- **Username/Password**: SIP credentials
-- **Transport**: UDP (default)
-- **Codecs**: PCMU, PCMA, G.729
-
-### Audio Settings
-
-- **Sample Rate**: 8kHz (telephony), 16kHz (AI processing), 24kHz (AI output)
-- **Codec**: A-law/μ-law for SIP, PCM for AI processing
-- **Packet Size**: 20ms RTP packets
-
-### AI Settings
-
-- **Model**: Gemini 2.0 Flash (with Live API)
-- **Voice**: Natural conversation mode
-- **Language**: English (configurable)
-
-### Docker Settings
-
-- **Base Image**: Python 3.11 slim
-- **User**: Non-root for security
-- **Health Checks**: Automated container health monitoring
-- **Resource Limits**: Configurable CPU and memory limits
-
-## File Structure
-
-```
-callie_caller/
-├── ai/               # AI integration components
-├── sip/              # SIP/RTP protocol implementation
-├── core/             # Main orchestration and web server
-├── config/           # Configuration management
-├── utils/            # Network utilities and helpers
-├── _version.py       # Version management
-├── Dockerfile        # Container definition
-├── docker-compose.yml # Development deployment
-├── docker-compose.prod.yml # Production deployment
-├── build.sh          # Docker build script
-├── deploy.sh         # Deployment automation
-└── scripts/
-    └── version.py    # Version management script
-```
-
-## Production Deployment
-
-### Environment Setup
-
-1. **Configure Firewall**: Allow UDP traffic on RTP port range (10000-10100)
-2. **Set up UPnP**: Enable for automatic NAT traversal
-3. **Logging**: Configure appropriate log levels for production
-4. **Monitoring**: Use health check endpoint for monitoring
-5. **Container Registry**: Set up Google Artifact Registry
-
-### Security Considerations
-
-- Store credentials securely (environment variables)
-- Validate all input phone numbers
-- Rate limit API endpoints
-- Monitor for unusual call patterns
-- Implement proper authentication for web API
-- Use non-root container user
-- Regular security updates for base images
-
-### Performance
-
-- Single-threaded async design for efficiency
-- Automatic audio buffer management
-- Graceful error handling and recovery
-- Memory-efficient audio processing
-- Container resource limits and monitoring
-- Health checks for automatic restart
-
-### Monitoring and Logging
+The `deploy-vm.sh` script is idempotent and handles everything from VM creation to running the container.
 
 ```bash
-# Container logs
-docker-compose logs -f callie-caller
-
-# Resource usage
-docker stats callie-caller
-
-# Health monitoring
-curl http://localhost:8080/health
-
-# Application metrics
-curl http://localhost:8080/stats
+# From the root of the repository
+./deploy-vm.sh deploy
 ```
 
-## Troubleshooting
+This command will:
+1.  Create a new `e2-small` VM named `callie-caller-vm` if it doesn't already exist and run a setup script to install Docker.
+2.  Build the production Docker image from `Dockerfile.prod`.
+3.  Push the image to Google Artifact Registry.
+4.  SSH into the VM, pull the latest image, and run it as a container with a restart policy.
 
-### Common Issues
+### Managing the Deployment
 
-**Port Already in Use**
+The `deploy-vm.sh` script provides several commands to manage your deployment:
+
+-   **Deploy a New Version**: To build and push a new image and then run it on the VM:
+    ```bash
+    ./deploy-vm.sh deploy
+    ```
+-   **Build & Push Only**:
+    ```bash
+    ./deploy-vm.sh build
+    ```
+-   **Run Latest Image on VM**:
+    ```bash
+    ./deploy-vm.sh run
+    ```
+-   **View Container Logs**:
+    ```bash
+    ./deploy-vm.sh logs
+    ```
+-   **SSH into the VM**:
+    ```bash
+    ./deploy-vm.sh ssh
+    ```
+
+## Local Development (with Docker)
+
+For local development, a simplified `docker-compose.yml` is provided.
+
+### Prerequisites
+
+-   Docker and Docker Compose
+-   A `.env` file created from `config.env.template` with your local credentials.
+
+### Running Locally
+
 ```bash
-# Check what's using the port
-lsof -i :8080
+# Build and run the container
+docker-compose up --build -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the container
+docker-compose down
 ```
 
-**Network Connectivity**
-- Verify UPnP is enabled on router
-- Check firewall allows UDP traffic
-- Ensure SIP provider credentials are correct
+The local Docker setup uses **host networking** to simplify SIP/RTP communication and mounts your local code directory into the container, allowing for live code changes without rebuilding.
 
-**Audio Quality**
-- Check network latency and jitter
-- Verify codec compatibility with SIP provider
-- Monitor system audio resources
+## Core Scripts
 
-**Container Issues**
-```bash
-# Check container status
-docker-compose ps
-
-# View detailed logs
-docker-compose logs callie-caller
-
-# Restart containers
-docker-compose restart
-```
-
-### Deployment Issues
-
-**GAR Authentication**
-```bash
-# Re-authenticate with Google Cloud
-gcloud auth login
-gcloud auth configure-docker us-central1-docker.pkg.dev
-```
-
-**Version Conflicts**
-```bash
-# Check current version
-python scripts/version.py --show
-
-# Clean up old images
-./deploy.sh cleanup
-```
-
-### Support
-
-For issues and questions:
-1. Check the logs for error messages
-2. Verify configuration with `--config-check`
-3. Test with debug logging enabled
-4. Review audio recordings in `captured_audio/` directory
-5. Check container health status
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please read the contributing guidelines and submit pull requests for any improvements.
-
-### Development Workflow
-
-1. **Create feature branch**
-2. **Make changes**
-3. **Test locally**: `docker-compose up -d`
-4. **Bump version**: `python scripts/version.py --bump patch`
-5. **Create release**: `python scripts/version.py --release patch`
-6. **Submit pull request**
-
----
-
-**Note**: This software is designed for legitimate business and personal use. Ensure compliance with local telecommunications regulations and obtain proper consent for call recording where required. 
+-   `deploy-vm.sh`: The main script for managing the Google Cloud VM deployment.
+-   `startup-script.sh`: The provisioning script that runs on the VM to install Docker.
+-   `main.py`: The single entry point for the application.
+-   `Dockerfile.prod`: The Dockerfile used for building the production image.
+-   `docker-compose.yml`: The configuration for local development. 

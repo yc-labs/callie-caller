@@ -1,99 +1,38 @@
 version: '3.8'
 
+# Docker Compose for Local Development
+# This file is designed for easy local testing and development.
+# It uses host networking for simplified SIP/RTP communication
+# and mounts the local code directory for live updates.
+
 services:
   callie-caller:
     build:
       context: .
-      dockerfile: Dockerfile.cloudrun-full
-      args:
-        VERSION: ${VERSION:-1.0.0}
-        BUILD_DATE: ${BUILD_DATE}
-        VCS_REF: ${VCS_REF}
-        BUILD_NUMBER: ${BUILD_NUMBER}
-    image: callie-caller-full:${VERSION:-latest}
+      dockerfile: Dockerfile.prod
+    image: callie-caller-dev:latest
     container_name: callie-caller
     restart: unless-stopped
     
-    # Load environment from file
+    # Use host networking to avoid complex port mapping for SIP/RTP.
+    # This makes the container share the host's network stack.
+    network_mode: "host"
+    
+    # Load environment variables from a local .env file.
+    # Create a .env file from config.env.template and fill in your secrets.
     env_file:
-      - docker-secrets.env
-    
-    # Additional environment configuration
-    environment:
-      # Container-specific settings
-      - PYTHONUNBUFFERED=1
-      # Force disable UPnP in containers
-      - USE_UPNP=false
-      # Set container-friendly networking
-      - CONTAINER_MODE=true
-    
-    # Port mapping - critical for SIP/RTP
-    ports:
-      - "${SERVER_PORT:-8080}:8080"
-      # SIP signaling port
-      - "5060:5060/udp"
-      # RTP port range for audio (wider range for container flexibility)
-      - "10000-10100:10000-10100/udp"
-    
-    # Volume mounts
+      - .env
+      
+    # Mount the local directory into the container for live code reloading.
+    # This allows you to change the Python code and see changes without
+    # rebuilding the Docker image.
     volumes:
-      # Persistent storage for logs and recordings
-      - callie_logs:/app/logs
-      - callie_audio:/app/captured_audio
-      # Optional: Mount config file if needed
-      - ./docker.env:/app/.env:ro
-    
-    # Network configuration - use host network for better SIP compatibility
-    network_mode: "bridge"
-    
-    # DNS configuration for better SIP resolution
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    
-    # Resource limits (adjust based on needs)
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-    
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-    
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-    
-    # For debugging - remove in production
-    # Default command uses main-cloudrun-full.py for full SIP support
-    # command: ["python", "main-cloudrun-full.py"]
-
-# Named volumes for persistent data
+      - .:/app
+      
+    # Add any additional environment variables needed for development here.
+    environment:
+      - LOG_LEVEL=DEBUG
+      
 volumes:
   callie_logs:
-    driver: local
-  callie_audio:
-    driver: local
-
-# Optional: Use host networking for maximum SIP compatibility (alternative approach)
-# Uncomment this and comment out the ports section above if you have issues
-# services:
-#   callie-caller:
-#     network_mode: "host"
-#     # Remove ports section when using host networking 
+  callie_audio: 

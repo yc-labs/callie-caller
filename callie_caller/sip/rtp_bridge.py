@@ -205,7 +205,8 @@ class RtpBridge:
         self.audio_callback: Optional[Callable[[bytes, str], None]] = None
         
         # Audio recording for verification - now using WAV format
-        self.record_audio = True
+        # Only enable in debug mode since Zoho handles recording in production
+        self.record_audio = os.getenv("ENABLE_WAV_RECORDING", "false").lower() == "true"
         self.audio_dir = "captured_audio"
         self.caller_wav_recorder: Optional[WavRecorder] = None
         self.remote_wav_recorder: Optional[WavRecorder] = None

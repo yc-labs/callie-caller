@@ -116,7 +116,7 @@ a=sendrecv
         if self.public_ip:
             via_header += f";received={self.public_ip}"
         
-        return f"""INVITE {self.invite_uri} SIP/2.0
+        full_invite = f"""INVITE {self.invite_uri} SIP/2.0
 {via_header}
 Max-Forwards: 70
 Contact: {self.contact_header}
@@ -132,6 +132,9 @@ Supported: timer,replaces
 Content-Length: {len(sdp_content)}
 
 {sdp_content}"""
+        
+        logger.info(f"--- CONSTRUCTED SIP INVITE ---\n{full_invite}\n--------------------")
+        return full_invite
         
     def create_authenticated_invite_message(self, auth_header: str, is_proxy_auth: bool = False) -> str:
         """
