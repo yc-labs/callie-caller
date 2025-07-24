@@ -87,7 +87,7 @@ class Settings:
         
         # Device emulation settings (required MAC address)
         device = DeviceSettings(
-            mac_address=_get_required_env("CUSTOM_USER_AGENT", "00:1a:2b:3c:4d:5e"),
+            mac_address="00:1a:2b:3c:4d:5e",  # MAC address registered with Zoho Voice
             model=os.getenv("DEVICE_MODEL", "SIP-T46S"),
             firmware=os.getenv("DEVICE_FIRMWARE", "66.85.0.5"),
             custom_user_agent=os.getenv("CUSTOM_USER_AGENT_OVERRIDE")
