@@ -404,12 +404,44 @@ class CallieAgent:
             
             # Keep the conversation active while call is connected
             conversation_time = 0
+            last_state_check = time.time()
+            consecutive_failures = 0
+            
             while call.state == CallState.CONNECTED and conversation_time < 1800:  # 30 minute max
                 await asyncio.sleep(5)  # Check every 5 seconds
                 conversation_time += 5
+                current_time = time.time()
+                
+                # **NEW: Enhanced call monitoring**
+                # Check for call state changes more frequently
+                if current_time - last_state_check > 10:  # Every 10 seconds
+                    try:
+                        # Verify call is still active
+                        if not self._verify_call_active(call):
+                            consecutive_failures += 1
+                            logger.warning(f"⚠️  Call verification failed {consecutive_failures}/3 for {call.call_id}")
+                            
+                            if consecutive_failures >= 3:
+                                logger.error(f"❌ Call {call.call_id} appears to be dead - terminating conversation")
+                                break
+                        else:
+                            consecutive_failures = 0  # Reset on success
+                            
+                        last_state_check = current_time
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error verifying call state: {e}")
+                        consecutive_failures += 1
                 
                 if conversation_time % 60 == 0:  # Log every minute
                     logger.info(f"🔔 Call {call.call_id} active for {conversation_time // 60} minutes")
+                    
+                # **NEW: Check for RTP activity**
+                if hasattr(self.sip_client, 'rtp_bridge') and self.sip_client.rtp_bridge:
+                    rtp_bridge = self.sip_client.rtp_bridge
+                    if (current_time - rtp_bridge.last_caller_packet_time > 120 and 
+                        rtp_bridge.last_caller_packet_time > 0):
+                        logger.warning(f"⚠️  No RTP packets from caller for 2+ minutes - call may be dead")
             
             logger.info(f"🔚 Call {call.call_id} conversation ended (Duration: {conversation_time}s, State: {call.state.value})")
             
@@ -430,7 +462,30 @@ class CallieAgent:
                     await self.sip_client.stop_audio_conversation()
             except:
                 pass  # Best effort cleanup
+
+    def _verify_call_active(self, call: SipCall) -> bool:
+        """Verify that a call is still active and responsive."""
+        try:
+            # Check basic call state
+            if call.state != CallState.CONNECTED:
+                return False
                 
+            # Check if call duration seems reasonable
+            if call.duration > 0:
+                # Call has been active for some time
+                return True
+                
+            # Additional checks could be added here:
+            # - Check SIP dialog state
+            # - Verify RTP flow
+            # - Send OPTIONS ping
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error verifying call {call.call_id}: {e}")
+            return False
+        
     def _is_voicemail_call(self, call: SipCall) -> bool:
         """Detect if call went to voicemail (placeholder implementation)."""
         # This is a placeholder - in reality you'd analyze audio patterns

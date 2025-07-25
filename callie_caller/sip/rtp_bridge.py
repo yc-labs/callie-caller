@@ -175,6 +175,7 @@ class RtpBridge:
     """
     RTP bridge that forwards audio between two endpoints and captures for AI.
     Acts as a true media relay to intercept RTP packets.
+    Enhanced with keepalive functionality to prevent network timeouts.
     """
     
     def __init__(self, local_ip: str):
@@ -183,6 +184,15 @@ class RtpBridge:
         self.socket = None
         self.running = False
         self.upnp_enabled = False
+        
+        # **NEW: Keepalive functionality**
+        self.keepalive_enabled = True
+        self.keepalive_interval = 20.0  # Send keepalive every 20 seconds
+        self.last_caller_packet_time = 0
+        self.last_remote_packet_time = 0
+        self.keepalive_thread: Optional[threading.Thread] = None
+        self.keepalive_running = False
+        self.keepalive_seq = 0
         
         # Test mode for debugging audio pipeline
         self.test_mode = False
@@ -329,12 +339,19 @@ class RtpBridge:
             bridge_thread = threading.Thread(target=self._bridge_loop, daemon=True)
             bridge_thread.start()
             
+            # **NEW: Start keepalive thread**
+            if self.keepalive_enabled:
+                self.keepalive_running = True
+                self.keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
+                self.keepalive_thread.start()
+                logger.info("🔄 RTP keepalive enabled - preventing network timeouts")
+            
             return self.local_port
             
         except Exception as e:
             logger.error(f"❌ Failed to start RTP bridge: {e}")
             return None
-    
+
     def set_remote_endpoint(self, remote_audio: AudioParams) -> None:
         """Set the remote endpoint after receiving 200 OK."""
         self.remote_endpoint = AudioEndpoint(
@@ -536,6 +553,7 @@ class RtpBridge:
             try:
                 self.socket.settimeout(1.0)  # 1 second timeout
                 data, addr = self.socket.recvfrom(4096)
+                current_time = time.time()
                 
                 # Track packet sources for debugging
                 source_key = f"{addr[0]}:{addr[1]}"
@@ -551,6 +569,8 @@ class RtpBridge:
                     self.caller_endpoint = AudioEndpoint(ip=addr[0], port=addr[1])
                     logger.info(f"📞 Audio source endpoint learned: {self.caller_endpoint.ip}:{self.caller_endpoint.port}")
                     logger.info(f"🔧 ECHO PREVENTION: Will NOT forward caller audio back to this endpoint")
+                    # Initialize keepalive timing
+                    self.last_caller_packet_time = current_time
                 
                 # Handle incoming RTP packets - these are the caller's voice from Zoho
                 if addr[0] == self.caller_endpoint.ip and addr[1] == self.caller_endpoint.port:
@@ -559,6 +579,8 @@ class RtpBridge:
                     self._capture_for_ai(data, "caller")
                     self._record_audio(data, "caller")
                     # 🚫 CRITICAL: Do NOT forward back to prevent echo!
+                    # **NEW: Update packet timing for keepalive**
+                    self.last_caller_packet_time = current_time
                     
                 elif self.remote_endpoint and addr[0] == self.remote_endpoint.ip and addr[1] == self.remote_endpoint.port:
                     # This shouldn't happen in our setup since Zoho is both endpoints
@@ -566,6 +588,8 @@ class RtpBridge:
                     logger.debug(f"📥 Received audio from alternate endpoint: {len(data)} bytes")
                     self._capture_for_ai(data, "remote")
                     self._record_audio(data, "remote")
+                    # **NEW: Update packet timing for keepalive**
+                    self.last_remote_packet_time = current_time
                     
                 else:
                     # Log unknown sources for debugging
@@ -595,7 +619,7 @@ class RtpBridge:
                 break
         
         logger.info("🌉 RTP Bridge loop ended")
-    
+
     def _analyze_rtp_packet(self, data: bytes, addr: tuple, direction: str) -> None:
         """Analyze RTP packet for debugging."""
         try:
@@ -1112,6 +1136,11 @@ class RtpBridge:
         """Stop the RTP bridge."""
         self.running = False
         
+        # **NEW: Stop keepalive thread**
+        self.keepalive_running = False
+        if self.keepalive_thread and self.keepalive_thread.is_alive():
+            self.keepalive_thread.join(timeout=2.0)
+        
         # Clean up UPnP port forwarding
         self._cleanup_upnp()
         
@@ -1137,3 +1166,75 @@ class RtpBridge:
                 logger.info(f"🧹 Cleaned up UPnP forwarding for port {self.local_port}")
             except Exception as e:
                 logger.warning(f"⚠️  UPnP cleanup error: {e}") 
+
+    def _keepalive_loop(self):
+        """Send RTP keepalive packets to prevent NAT/firewall timeouts."""
+        logger.info("🔄 RTP keepalive thread started")
+        
+        while self.keepalive_running and self.running:
+            try:
+                current_time = time.time()
+                
+                # Send keepalive to caller if no recent traffic
+                if (current_time - self.last_caller_packet_time > self.keepalive_interval and 
+                    self.caller_endpoint and self.socket):
+                    self._send_keepalive_packet(self.caller_endpoint, "caller")
+                
+                # Send keepalive to remote endpoint if no recent traffic  
+                if (current_time - self.last_remote_packet_time > self.keepalive_interval and
+                    self.remote_endpoint and self.socket):
+                    self._send_keepalive_packet(self.remote_endpoint, "remote")
+                
+                # Sleep for 5 seconds before checking again
+                time.sleep(5.0)
+                
+            except Exception as e:
+                if self.keepalive_running:
+                    logger.error(f"❌ Error in keepalive loop: {e}")
+                time.sleep(1.0)
+        
+        logger.info("🔄 RTP keepalive thread stopped")
+
+    def _send_keepalive_packet(self, endpoint: AudioEndpoint, target: str):
+        """Send a minimal RTP keepalive packet."""
+        try:
+            # Create minimal RTP packet with silence payload
+            rtp_packet = self._create_keepalive_rtp_packet()
+            
+            self.socket.sendto(rtp_packet, (endpoint.ip, endpoint.port))
+            logger.debug(f"🔄 Sent RTP keepalive to {target} ({endpoint.ip}:{endpoint.port})")
+            
+            # Update last packet time to prevent immediate re-send
+            if target == "caller":
+                self.last_caller_packet_time = time.time()
+            else:
+                self.last_remote_packet_time = time.time()
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to send keepalive to {target}: {e}")
+
+    def _create_keepalive_rtp_packet(self) -> bytes:
+        """Create a minimal RTP packet for keepalive purposes."""
+        # RTP header (12 bytes) + minimal payload (silence)
+        version = 2
+        padding = 0
+        extension = 0
+        csrc_count = 0
+        marker = 0
+        payload_type = 0  # PCMU
+        sequence_number = self.keepalive_seq
+        timestamp = int(time.time() * 8000) % (2**32)
+        ssrc = 0x12345678
+        
+        # Pack RTP header
+        byte0 = (version << 6) | (padding << 5) | (extension << 4) | csrc_count
+        byte1 = (marker << 7) | payload_type
+        
+        header = struct.pack('!BBHII', byte0, byte1, sequence_number, timestamp, ssrc)
+        
+        # Add minimal silence payload (20ms of PCMU silence = 160 bytes of 0xFF)
+        silence_payload = b'\xFF' * 160
+        
+        self.keepalive_seq = (self.keepalive_seq + 1) % 65536
+        
+        return header + silence_payload 

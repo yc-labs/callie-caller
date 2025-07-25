@@ -364,56 +364,148 @@ class SipClient:
         return self._received_responses.pop(cseq_key, None)
 
     def _message_listener_loop(self) -> None:
-        """Background thread for listening to SIP messages."""
+        """Listen for incoming SIP messages."""
         logger.info("👂 SIP message listener started")
         
         while self.running:
             try:
-                self.socket.settimeout(1.0)  # Allow periodic checks
+                self.socket.settimeout(1.0)
                 data, addr = self.socket.recvfrom(4096)
-                message = data.decode('utf-8')
                 
-                logger.debug(f"📨 Received from {addr}: {message[:200]}...")
+                message = data.decode('utf-8', errors='ignore')
                 
-                # Parse the message
-                response = parse_sip_response(message)
-                if response:
-                    # Handle responses to our requests
-                    cseq_key = response.headers.get('cseq', 'unknown')
-                    logger.debug(f"📨 Response: {response.status_code} {response.status_text} for {cseq_key}")
-                    
-                    # Store the response for waiting threads
-                    if cseq_key in self._response_events:
-                        self._received_responses[cseq_key] = response
-                        self._response_events[cseq_key].set()
-                    
-                    # Update call states
-                    call_id = response.headers.get('call-id')
-                    if call_id and call_id in self.active_calls:
-                        call = self.active_calls[call_id]
-                        self._handle_response_for_call(call, response)
+                # **NEW: Comprehensive SIP message logging**
+                timestamp = time.time()
+                logger.info(f"📥 INCOMING SIP MESSAGE at {timestamp:.3f} from {addr[0]}:{addr[1]}")
+                logger.info(f"📥 RAW MESSAGE:\n{'-'*50}")
+                for i, line in enumerate(message.split('\n'), 1):
+                    logger.info(f"📥 {i:2d}: {line.rstrip()}")
+                logger.info(f"📥 {'-'*50}")
+                
+                # Parse and analyze the message
+                if message.startswith('SIP/2.0'):
+                    self._handle_sip_response(message, addr)
+                elif any(method in message.split('\n')[0] for method in ['INVITE', 'BYE', 'ACK', 'CANCEL', 'OPTIONS', 'REGISTER']):
+                    self._handle_sip_request(message, addr)
                 else:
-                    # Check if it's a BYE request (call termination)
-                    if message.startswith('BYE '):
-                        logger.info("📞 Received BYE - call terminated by remote party")
-                        self._handle_bye_request(message)
-                    elif message.startswith('CANCEL '):
-                        logger.info("📞 Received CANCEL - call cancelled by remote party")
-                        self._handle_cancel_request(message)
-                    else:
-                        logger.debug(f"📨 Non-response message: {message[:50]}...")
-                
+                    logger.warning(f"⚠️  Unknown SIP message type from {addr}")
+                    
             except socket.timeout:
-                # Check for dead calls periodically
-                self._check_call_states()
                 continue
             except Exception as e:
                 if self.running:
-                    logger.error(f"Error in message listener: {e}")
-                break
-        
+                    logger.error(f"❌ Error in message listener: {e}")
+                    
         logger.info("👂 SIP message listener stopped")
-    
+
+    def _handle_sip_request(self, message: str, addr: tuple) -> None:
+        """Handle incoming SIP requests with detailed logging."""
+        lines = message.split('\n')
+        request_line = lines[0].strip()
+        method = request_line.split()[0]
+        
+        # **NEW: Detailed request analysis**
+        logger.info(f"🔍 SIP REQUEST ANALYSIS:")
+        logger.info(f"🔍   Method: {method}")
+        logger.info(f"🔍   From: {addr[0]}:{addr[1]}")
+        logger.info(f"🔍   Time: {time.time():.3f}")
+        
+        # Extract key headers
+        headers = {}
+        for line in lines[1:]:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                headers[key.strip().lower()] = value.strip()
+        
+        call_id = headers.get('call-id', 'unknown')
+        cseq = headers.get('cseq', 'unknown')
+        
+        logger.info(f"🔍   Call-ID: {call_id}")
+        logger.info(f"🔍   CSeq: {cseq}")
+        
+        if method == 'BYE':
+            # **CRITICAL: Track who is sending BYE and why**
+            logger.error(f"🚨 BYE REQUEST RECEIVED!")
+            logger.error(f"🚨   Call-ID: {call_id}")
+            logger.error(f"🚨   From Zoho: {addr[0]}:{addr[1]}")
+            logger.error(f"🚨   CSeq: {cseq}")
+            logger.error(f"🚨   Time: {time.time():.3f}")
+            
+            # Check if we have this call
+            matching_call = None
+            for call in self.active_calls.values():
+                if call.call_id == call_id:
+                    matching_call = call
+                    break
+            
+            if matching_call:
+                call_duration = time.time() - matching_call.start_time
+                logger.error(f"🚨   Call Duration: {call_duration:.1f} seconds")
+                logger.error(f"🚨   Call State: {matching_call.state.value}")
+                
+                if call_duration <= 35:  # Close to 30 seconds
+                    logger.error(f"🚨 ZOHO KILLED CALL AT ~30 SECONDS!")
+                    logger.error(f"🚨 This confirms Zoho is terminating the call, not us!")
+                    
+            # Send 200 OK response to BYE
+            self._send_bye_response(call_id, cseq, addr)
+            
+        elif method == 'INVITE':
+            logger.info(f"📞 INVITE received for call {call_id}")
+            # Handle INVITE normally...
+            
+        # Handle other methods...
+
+    def _handle_sip_response(self, message: str, addr: tuple) -> None:
+        """Handle SIP responses with detailed logging."""
+        lines = message.split('\n')
+        status_line = lines[0].strip()
+        
+        # **NEW: Enhanced response logging**
+        logger.info(f"📤 SIP RESPONSE ANALYSIS:")
+        logger.info(f"📤   Status: {status_line}")
+        logger.info(f"📤   From: {addr[0]}:{addr[1]}")
+        logger.info(f"📤   Time: {time.time():.3f}")
+        
+        # Extract headers
+        headers = {}
+        for line in lines[1:]:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                headers[key.strip().lower()] = value.strip()
+        
+        call_id = headers.get('call-id', 'unknown')
+        cseq = headers.get('cseq', 'unknown')
+        
+        logger.info(f"📤   Call-ID: {call_id}")
+        logger.info(f"📤   CSeq: {cseq}")
+        
+        # Check for session timer headers
+        session_expires = headers.get('session-expires')
+        if session_expires:
+            logger.warning(f"⚠️  Zoho sent Session-Expires: {session_expires}")
+            logger.warning(f"⚠️  This might be why calls end at 30 seconds!")
+            
+        # Continue with normal response handling...
+        response = SipResponse.parse(message)
+        if response:
+            self._process_sip_response(response, addr)
+
+    def _send_bye_response(self, call_id: str, cseq: str, addr: tuple) -> None:
+        """Send 200 OK response to BYE request."""
+        response = f"""SIP/2.0 200 OK
+Via: SIP/2.0/UDP {addr[0]}:{addr[1]}
+From: <sip:{self.settings.zoho.sip_username}@{self.settings.zoho.sip_server}>
+To: <sip:{self.settings.zoho.sip_username}@{self.settings.zoho.sip_server}>
+Call-ID: {call_id}
+CSeq: {cseq}
+Content-Length: 0
+
+"""
+        
+        self.socket.sendto(response.encode(), addr)
+        logger.info(f"📤 Sent 200 OK response to BYE for call {call_id}")
+
     def _check_call_states(self) -> None:
         """Check for calls that should be considered ended."""
         current_time = time.time()
@@ -639,6 +731,11 @@ Content-Length: 0
     def stop_client(self) -> None:
         """Stop the SIP client and clean up resources."""
         logger.info("Stopping SIP client...")
+        
+        # Stop recovery monitoring
+        self.recovery_running = False
+        if self.recovery_thread and self.recovery_thread.is_alive():
+            self.recovery_thread.join(timeout=5.0)
         
         # Stop RTP bridge first
         if self.rtp_bridge:

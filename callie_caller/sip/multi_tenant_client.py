@@ -603,7 +603,7 @@ Allow: INVITE,ACK,OPTIONS,CANCEL,BYE,SUBSCRIBE,NOTIFY,INFO,REFER,UPDATE
 Content-Type: application/sdp
 Accept: application/sdp
 User-Agent: {self.user_config.device.user_agent}
-Supported: timer,replaces
+Supported: replaces
 Content-Length: {len(sdp_content)}
 
 {sdp_content}"""

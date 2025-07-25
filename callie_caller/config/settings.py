@@ -57,10 +57,22 @@ class CallSettings:
     default_greeting: str = "Hello! This is an AI assistant. How can I help you today?"
     max_call_duration: int = 1800  # 30 minutes
     answer_timeout: int = 30
+    
+    # **NEW: Enhanced reliability settings**
+    call_setup_timeout: int = 60  # Time to wait for call setup
+    rtp_timeout: int = 120  # Max time without RTP packets before considering call dead
+    keepalive_interval: int = 20  # RTP keepalive interval in seconds
+    registration_refresh_interval: int = 1800  # SIP registration refresh (30 minutes)
+    
     # RTP port configuration for NAT traversal
     rtp_port_min: int = 10000  # Start of RTP port range
     rtp_port_max: int = 10100  # End of RTP port range (100 ports available)
     use_fixed_rtp_port: bool = True  # Use fixed port instead of random
+    
+    # **NEW: Connection recovery settings**
+    max_registration_failures: int = 3  # Max failed registrations before giving up
+    registration_retry_delay: int = 5  # Seconds between registration retries
+    connection_health_check_interval: int = 30  # Seconds between health checks
 
 @dataclass
 class Settings:
