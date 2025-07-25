@@ -67,8 +67,14 @@ class CallieAgent:
             self._init_single_tenant_mode()
         
         # Flask app for webhooks and API
-        self.app = Flask(__name__)
-        self._setup_flask_routes()
+        # Check if we should use the enhanced web UI
+        if os.getenv('USE_WEB_UI', 'false').lower() == 'true':
+            from callie_caller.core.web_api import WebAPI
+            self.web_api = WebAPI(self)
+            self.app = self.web_api.app
+        else:
+            self.app = Flask(__name__)
+            self._setup_flask_routes()
         
         # State management
         self.running = False
@@ -871,12 +877,20 @@ class CallieAgent:
     def _run_flask_server(self) -> None:
         """Run Flask server in thread."""
         try:
-            self.app.run(
-                host=self.settings.server.host,
-                port=self.settings.server.port,
-                debug=self.settings.server.debug,
-                use_reloader=False  # Disable reloader in thread
-            )
+            # Use WebSocketIO run method if web UI is enabled
+            if hasattr(self, 'web_api'):
+                self.web_api.run(
+                    host=self.settings.server.host,
+                    port=self.settings.server.port,
+                    debug=self.settings.server.debug
+                )
+            else:
+                self.app.run(
+                    host=self.settings.server.host,
+                    port=self.settings.server.port,
+                    debug=self.settings.server.debug,
+                    use_reloader=False  # Disable reloader in thread
+                )
         except Exception as e:
             logger.error(f"Flask server error: {e}")
             
