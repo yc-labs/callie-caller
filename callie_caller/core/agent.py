@@ -14,11 +14,19 @@ from typing import Optional, Dict, Any, Callable, Union
 from flask import Flask, request, Response, jsonify
 import random
 
-# Import both SIP client implementations
+# Import legacy SIP client implementation
 from callie_caller.sip.client import SipClient
 from callie_caller.sip.call import SipCall, CallState
-from callie_caller.sip.pjsua2_client import PjSipClient
-from callie_caller.sip.pjsua2_call import PjCall
+
+# Try to import PJSUA2 implementation (optional)
+try:
+    from callie_caller.sip.pjsua2_client import PjSipClient
+    from callie_caller.sip.pjsua2_call import PjCall
+    PJSUA2_AVAILABLE = True
+except ImportError:
+    PJSUA2_AVAILABLE = False
+    PjSipClient = None
+    PjCall = None
 
 from callie_caller.ai.conversation import ConversationManager
 from callie_caller.config import get_settings
@@ -43,11 +51,14 @@ class CallieAgent:
         self.conversation_manager = ConversationManager()
         
         # Determine which SIP implementation to use
-        self.use_pjsua2 = os.getenv('USE_PJSUA2', 'true').lower() == 'true'
+        self.use_pjsua2 = os.getenv('USE_PJSUA2', 'true').lower() == 'true' and PJSUA2_AVAILABLE
         if self.use_pjsua2:
             logger.info("🚀 Using PJSUA2 implementation for robust SIP handling")
         else:
-            logger.warning("⚠️ Using legacy SIP implementation (not recommended)")
+            if os.getenv('USE_PJSUA2', 'true').lower() == 'true' and not PJSUA2_AVAILABLE:
+                logger.warning("⚠️ PJSUA2 requested but not available, falling back to legacy implementation")
+            else:
+                logger.warning("⚠️ Using legacy SIP implementation (not recommended)")
         
         # Initialize mode-specific components
         if self.multi_tenant_mode:

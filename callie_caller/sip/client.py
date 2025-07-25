@@ -487,9 +487,8 @@ class SipClient:
             logger.warning(f"⚠️  This might be why calls end at 30 seconds!")
             
         # Continue with normal response handling...
-        response = SipResponse.parse(message)
-        if response:
-            self._process_sip_response(response, addr)
+        # Dispatch the full message for proper processing
+        self._dispatch_message(message, addr)
 
     def _send_bye_response(self, call_id: str, cseq: str, addr: tuple) -> None:
         """Send 200 OK response to BYE request."""

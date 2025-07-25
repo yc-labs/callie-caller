@@ -105,7 +105,8 @@ Examples:
             # Server mode (default for Docker/Cloud Run)
             settings = get_settings()
             logger.info("🚀 Agent running in server mode.")
-            logger.info(f"✅ SIP client registered: {agent.sip_client.registered}")
+            registration_status = "✅" if agent.sip_client.registered else "❌"
+            logger.info(f"{registration_status} SIP client registered: {agent.sip_client.registered}")
             logger.info(f"✅ Web API listening on port {settings.server.port}")
             logger.info("Press Ctrl+C to stop.")
             # Keep the main thread alive while background threads run

@@ -16,7 +16,7 @@ numpy>=1.24.0
 scipy>=1.10.0
 
 # SIP and telephony - PJSUA2 for robust SIP handling
-pjsua2>=2.14
+# pjsua2>=2.12  # Optional - install separately if needed
 
 # Data validation and configuration
 pydantic>=2.5.0

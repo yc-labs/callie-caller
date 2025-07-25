@@ -207,6 +207,11 @@ class RtpBridge:
         self._ai_samples_sent = 0  # Track samples sent for current stream
         self._is_first_ai_chunk = True # NEW: Flag to handle initial audio chunk
         
+        # Silence injection to keep RTP stream alive
+        self.silence_injection_thread: Optional[threading.Thread] = None
+        self.silence_injection_running = False
+        self.last_outgoing_rtp_time = 0
+        
         # Endpoints - learned dynamically
         self.caller_endpoint: Optional[AudioEndpoint] = None  # Phone
         self.remote_endpoint: Optional[AudioEndpoint] = None  # Zoho server
@@ -345,6 +350,12 @@ class RtpBridge:
                 self.keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
                 self.keepalive_thread.start()
                 logger.info("🔄 RTP keepalive enabled - preventing network timeouts")
+            
+            # Start silence injection thread to maintain RTP stream
+            self.silence_injection_running = True
+            self.silence_injection_thread = threading.Thread(target=self._silence_injection_loop, daemon=True)
+            self.silence_injection_thread.start()
+            logger.info("🔇 RTP silence injection enabled - maintaining continuous stream")
             
             return self.local_port
             
@@ -564,11 +575,12 @@ class RtpBridge:
                     # Analyze the first packet from this source
                     self._analyze_rtp_packet(data, addr, "INCOMING")
                 
-                # Learn caller endpoint from first packet (this is actually Zoho sending caller audio to us)
-                if not self.caller_endpoint:
-                    self.caller_endpoint = AudioEndpoint(ip=addr[0], port=addr[1])
-                    logger.info(f"📞 Audio source endpoint learned: {self.caller_endpoint.ip}:{self.caller_endpoint.port}")
-                    logger.info(f"🔧 ECHO PREVENTION: Will NOT forward caller audio back to this endpoint")
+                # Learn inbound source but DO NOT overwrite the SDP-configured outbound endpoint
+                if not hasattr(self, 'inbound_audio_source'):
+                    self.inbound_audio_source = AudioEndpoint(ip=addr[0], port=addr[1])
+                    logger.info(f"📞 Inbound audio source: {addr[0]}:{addr[1]}")
+                    logger.info(f"📤 Outbound audio target (from SDP): {self.caller_endpoint.ip}:{self.caller_endpoint.port}")
+                    logger.info(f"🔧 CRITICAL: Sending audio to SDP endpoint, not source!")
                     # Initialize keepalive timing
                     self.last_caller_packet_time = current_time
                 
@@ -917,6 +929,7 @@ class RtpBridge:
                         time.sleep(delay)
                 
                 self.socket.sendto(packet, (target_endpoint.ip, target_endpoint.port))
+                self.last_outgoing_rtp_time = time.time()  # Update timestamp for silence injection
                 self.packets_from_ai += 1
                 packets_sent += 1
 
@@ -1141,6 +1154,11 @@ class RtpBridge:
         if self.keepalive_thread and self.keepalive_thread.is_alive():
             self.keepalive_thread.join(timeout=2.0)
         
+        # Stop silence injection thread
+        self.silence_injection_running = False
+        if self.silence_injection_thread and self.silence_injection_thread.is_alive():
+            self.silence_injection_thread.join(timeout=2.0)
+        
         # Clean up UPnP port forwarding
         self._cleanup_upnp()
         
@@ -1236,5 +1254,77 @@ class RtpBridge:
         silence_payload = b'\xFF' * 160
         
         self.keepalive_seq = (self.keepalive_seq + 1) % 65536
+        
+        return header + silence_payload
+    
+    def _silence_injection_loop(self):
+        """Continuously send silence packets to maintain RTP stream."""
+        logger.info("🔇 RTP silence injection thread started")
+        log_counter = 0
+        
+        while self.silence_injection_running and self.running:
+            try:
+                current_time = time.time()
+                
+                # Log status every 50 iterations (1 second)
+                log_counter += 1
+                if log_counter % 50 == 0:
+                    logger.info(f"🔇 Silence loop check: caller_endpoint={self.caller_endpoint is not None}, "
+                              f"socket={self.socket is not None}, "
+                              f"time_since_last={current_time - self.last_outgoing_rtp_time:.3f}s")
+                
+                # Only inject silence if we haven't sent audio recently
+                if (self.caller_endpoint and self.socket and 
+                    current_time - self.last_outgoing_rtp_time > 0.015):  # 15ms threshold
+                    
+                    # Create and send silence packet
+                    silence_packet = self._create_silence_rtp_packet()
+                    self.socket.sendto(silence_packet, (self.caller_endpoint.ip, self.caller_endpoint.port))
+                    self.last_outgoing_rtp_time = current_time
+                    
+                    # Log periodically
+                    if not hasattr(self, '_silence_log_count'):
+                        self._silence_log_count = 0
+                    self._silence_log_count += 1
+                    if self._silence_log_count % 100 == 0:  # Log every 2 seconds
+                        logger.info(f"🔇 Sent {self._silence_log_count} silence packets to maintain stream")
+                
+                # Send packets every 20ms
+                time.sleep(0.020)
+                
+            except Exception as e:
+                if self.silence_injection_running:
+                    logger.error(f"❌ Error in silence injection loop: {e}")
+                time.sleep(0.1)
+        
+        logger.info("🔇 RTP silence injection thread stopped")
+    
+    def _create_silence_rtp_packet(self) -> bytes:
+        """Create an RTP packet with silence payload."""
+        # RTP header
+        version = 2
+        padding = 0
+        extension = 0
+        csrc_count = 0
+        marker = 0
+        payload_type = 8  # PCMA (A-law)
+        
+        # Use the same sequence and timestamp tracking as AI audio
+        sequence_number = self._ai_sequence_number
+        self._ai_sequence_number = (self._ai_sequence_number + 1) & 0xFFFF
+        
+        timestamp = (self._ai_timestamp_base + self._ai_samples_sent) & 0xFFFFFFFF
+        self._ai_samples_sent += 160  # 20ms at 8kHz
+        
+        ssrc = 0x87654321  # Same SSRC as AI audio
+        
+        # Pack RTP header
+        byte0 = (version << 6) | (padding << 5) | (extension << 4) | csrc_count
+        byte1 = (marker << 7) | payload_type
+        
+        header = struct.pack('!BBHII', byte0, byte1, sequence_number, timestamp, ssrc)
+        
+        # A-law silence is 0xD5 (not 0x55)
+        silence_payload = b'\xD5' * 160  # 20ms of A-law silence
         
         return header + silence_payload 
