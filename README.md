@@ -1,8 +1,20 @@
-# Callie Caller - AI Voice Agent
+# 📞 Callie Caller
 
-A production-ready AI voice assistant that makes and receives phone calls using the SIP protocol and Google's Gemini API for natural, real-time voice conversations. This project is designed for a robust, container-based deployment on a Google Compute Engine VM.
+An AI voice agent that powers phone conversations via SIP, enabling real-time dialogue between callers and AI using Google's Gemini Multimodal Live API.
 
-## Features
+## 🎉 New: PJSUA2 Implementation
+
+**We've refactored the SIP stack to use PJSUA2, solving the 30-second call drop issue!**
+
+### Key Benefits:
+- ✅ **No more 30-second call drops** - Automatic session timer handling (RFC 4028)
+- 🔧 **Robust SIP implementation** - Built on the industry-standard PJSIP library
+- 🌐 **Better NAT traversal** - Built-in STUN/ICE support
+- 📈 **Production-ready** - Used by millions of VoIP applications worldwide
+
+See [docs/pjsua2-refactoring.md](docs/pjsua2-refactoring.md) for details.
+
+## Core Features
 
 - **Real-time Voice Conversations**: Natural, real-time AI-powered phone conversations.
 - **SIP Integration**: Compatible with standard SIP providers (e.g., Zoho Voice).

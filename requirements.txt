@@ -15,6 +15,9 @@ pyaudio>=0.2.11
 numpy>=1.24.0
 scipy>=1.10.0
 
+# SIP and telephony - PJSUA2 for robust SIP handling
+pjsua2>=2.14
+
 # Data validation and configuration
 pydantic>=2.5.0
 python-dotenv>=1.0.0

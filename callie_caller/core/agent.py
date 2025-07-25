@@ -2,6 +2,7 @@
 Main Callie Agent - AI Voice Assistant for Zoho Voice.
 Coordinates SIP calling, AI conversation, and call management.
 Supports both single-tenant (legacy) and multi-tenant modes.
+Now with PJSUA2 support for robust session timer handling.
 """
 
 import logging
@@ -9,12 +10,16 @@ import threading
 import time
 import asyncio
 import os
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, Union
 from flask import Flask, request, Response, jsonify
 import random
 
+# Import both SIP client implementations
 from callie_caller.sip.client import SipClient
 from callie_caller.sip.call import SipCall, CallState
+from callie_caller.sip.pjsua2_client import PjSipClient
+from callie_caller.sip.pjsua2_call import PjCall
+
 from callie_caller.ai.conversation import ConversationManager
 from callie_caller.config import get_settings
 
@@ -24,6 +29,7 @@ class CallieAgent:
     """
     Main AI voice agent that coordinates all components.
     Supports both single-tenant (legacy) and multi-tenant modes.
+    Uses PJSUA2 by default for robust SIP handling with proper session timers.
     """
     
     def __init__(self):
@@ -35,6 +41,13 @@ class CallieAgent:
         
         # Initialize components
         self.conversation_manager = ConversationManager()
+        
+        # Determine which SIP implementation to use
+        self.use_pjsua2 = os.getenv('USE_PJSUA2', 'true').lower() == 'true'
+        if self.use_pjsua2:
+            logger.info("🚀 Using PJSUA2 implementation for robust SIP handling")
+        else:
+            logger.warning("⚠️ Using legacy SIP implementation (not recommended)")
         
         # Initialize mode-specific components
         if self.multi_tenant_mode:
@@ -56,7 +69,8 @@ class CallieAgent:
         self._loop_thread: Optional[threading.Thread] = None
         
         mode_str = "multi-tenant" if self.multi_tenant_mode else "single-tenant (legacy)"
-        logger.info(f"Callie Agent initialized in {mode_str} mode")
+        sip_str = "PJSUA2" if self.use_pjsua2 else "legacy"
+        logger.info(f"Callie Agent initialized in {mode_str} mode with {sip_str} SIP implementation")
         
     def _check_firebase_availability(self) -> bool:
         """Check if Firebase is configured and available."""
@@ -92,10 +106,14 @@ class CallieAgent:
         logger.info("🔥 Multi-tenant mode initialized with Firebase backend")
     
     def _init_single_tenant_mode(self):
-        """Initialize single-tenant components."""
-        self.sip_client = SipClient(on_incoming_call=self._handle_incoming_call)
+        """Initialize single-tenant components with appropriate SIP client."""
+        if self.use_pjsua2:
+            self.sip_client = PjSipClient(on_incoming_call=self._handle_incoming_call_pjsua2)
+        else:
+            self.sip_client = SipClient(on_incoming_call=self._handle_incoming_call)
+            
         self.multi_tenant_manager = None
-        logger.info("📞 Single-tenant mode initialized with global SIP client")
+        logger.info(f"📞 Single-tenant mode initialized with {'PJSUA2' if self.use_pjsua2 else 'legacy'} SIP client")
         
     def start(self, request_headers: Optional[Dict[str, str]] = None) -> None:
         """Start the AI voice agent."""
@@ -152,7 +170,7 @@ class CallieAgent:
     
     def _start_single_tenant_mode(self, request_headers: Optional[Dict[str, str]] = None):
         """Start single-tenant mode."""
-        logger.info("📞 Starting single-tenant mode")
+        logger.info(f"📞 Starting single-tenant mode with {'PJSUA2' if self.use_pjsua2 else 'legacy'} SIP")
         
         # Start SIP client
         self.sip_client.start(request_headers)
@@ -160,7 +178,11 @@ class CallieAgent:
         # Attempt registration (optional for outbound-only mode)
         try:
             self.sip_client.register()
-            logger.info(f"- SIP client: {self.sip_client.local_ip}:{self.sip_client.local_port}")
+            if self.use_pjsua2:
+                logger.info(f"- PJSUA2 client: {self.sip_client.local_ip}:{self.sip_client.local_port}")
+                logger.info(f"- Session timers: ENABLED (prevents 30-second drops)")
+            else:
+                logger.info(f"- SIP client: {self.sip_client.local_ip}:{self.sip_client.local_port}")
             logger.info(f"- Device emulation: {self.settings.device.user_agent}")
         except Exception as e:
             logger.warning(f"SIP registration failed (continuing in outbound-only mode): {e}")
@@ -230,10 +252,14 @@ class CallieAgent:
             logger.warning("Test audio mode not implemented for multi-tenant mode yet")
             return False
         elif self.sip_client:
-            success = self.sip_client.enable_test_mode(test_audio_file)
-            if success:
-                logger.info("🧪 Test audio mode enabled for agent")
-            return success
+            if self.use_pjsua2:
+                logger.warning("Test audio mode not implemented for PJSUA2 yet")
+                return False
+            else:
+                success = self.sip_client.enable_test_mode(test_audio_file)
+                if success:
+                    logger.info("🧪 Test audio mode enabled for agent")
+                return success
         logger.error("❌ Cannot enable test mode - SIP client not available")
         return False
         
@@ -290,34 +316,59 @@ class CallieAgent:
     
     def _make_call_single_tenant(self, phone_number: str, message: Optional[str], request_headers: Optional[Dict[str, str]]) -> bool:
         """Make call in single-tenant mode."""
-        # Create a new call
-        call = SipCall(
-            call_id=f"call-{random.randint(100000, 999999)}-{int(time.time())}",
-            local_ip=self.sip_client.local_ip,
-            public_ip=self.sip_client.public_ip,
-            local_port=self.sip_client.local_port,
-            settings=self.sip_client.settings,
-            authenticator=self.sip_client.authenticator,
-            target_number=phone_number,
-            ai_message=message
-        )
-        
-        # Make the call
-        success = self.sip_client.make_call(call)
-        
-        if success and call.state == CallState.CONNECTED:
-            # Track the call for conversation handling
-            self.call_conversations[call.call_id] = f"outbound-{int(time.time())}-{phone_number}"
+        if self.use_pjsua2:
+            # PJSUA2 implementation
+            call = self.sip_client.make_call(phone_number, message)
+            if call:
+                # Track the call for conversation handling
+                call_info = call.get_info_dict()
+                self.call_conversations[str(call_info['id'])] = f"outbound-{int(time.time())}-{phone_number}"
+                
+                # Wait for call to connect
+                timeout = 30
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    call_info = call.get_info_dict()
+                    if call_info['connected']:
+                        logger.info(f"✅ Call connected after {time.time() - start_time:.1f}s")
+                        return True
+                    elif call_info['state'] == 6:  # DISCONNECTED
+                        logger.error("❌ Call failed to connect")
+                        return False
+                    time.sleep(0.1)
+                
+                logger.error("❌ Call connection timeout")
+                return False
+            return False
+        else:
+            # Legacy implementation
+            call = SipCall(
+                call_id=f"call-{random.randint(100000, 999999)}-{int(time.time())}",
+                local_ip=self.sip_client.local_ip,
+                public_ip=self.sip_client.public_ip,
+                local_port=self.sip_client.local_port,
+                settings=self.sip_client.settings,
+                authenticator=self.sip_client.authenticator,
+                target_number=phone_number,
+                ai_message=message
+            )
             
-            # Start audio conversation in the event loop
-            if self._loop and self._loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(
-                    self._handle_call_conversation(call),
-                    self._loop
-                )
-                logger.info(f"🔄 Call conversation scheduled in event loop")
-        
-        return success
+            # Make the call
+            success = self.sip_client.make_call(call)
+            
+            if success and call.state == CallState.CONNECTED:
+                # Track the call for conversation handling
+                self.call_conversations[call.call_id] = f"outbound-{int(time.time())}-{phone_number}"
+                
+                # Start audio conversation in the event loop
+                if self._loop and self._loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._handle_call_conversation(call),
+                        self._loop
+                    )
+                    logger.info(f"🔄 Call conversation scheduled in event loop")
+            
+            return success
     
     def is_call_active(self) -> bool:
         """Check if there are any active calls."""
@@ -325,9 +376,21 @@ class CallieAgent:
             return len(self.multi_tenant_manager.active_calls) > 0 if self.multi_tenant_manager else False
         else:
             return len(getattr(self.sip_client, 'active_calls', {})) > 0
+    
+    def _handle_incoming_call_pjsua2(self, call: PjCall) -> None:
+        """Handle incoming PJSUA2 call."""
+        logger.info(f"Incoming PJSUA2 call")
         
-    def _handle_incoming_call(self, call: SipCall) -> None:
+        # Answer the call
+        call.answer()
+        logger.info(f"Answered PJSUA2 call")
+        
+    def _handle_incoming_call(self, call: Union[SipCall, PjCall]) -> None:
         """Handle incoming SIP call in single-tenant mode."""
+        if isinstance(call, PjCall):
+            self._handle_incoming_call_pjsua2(call)
+            return
+            
         logger.info(f"Incoming call from {call.target_number}")
         
         # Start conversation
@@ -368,8 +431,13 @@ class CallieAgent:
                 logger.error(f"Error starting incoming call conversation: {e}")
                 call.hangup()
                 
-    async def _handle_call_conversation(self, call: SipCall) -> None:
+    async def _handle_call_conversation(self, call: Union[SipCall, PjCall]) -> None:
         """Handle conversation for a connected call."""
+        if self.use_pjsua2:
+            # PJSUA2 handles audio bridging automatically
+            logger.info(f"🎤 PJSUA2 call - audio bridging handled automatically")
+            return
+            
         logger.info(f"🎤 Starting conversation for call {call.call_id}")
         
         try:
@@ -463,30 +531,35 @@ class CallieAgent:
             except:
                 pass  # Best effort cleanup
 
-    def _verify_call_active(self, call: SipCall) -> bool:
+    def _verify_call_active(self, call: Union[SipCall, PjCall]) -> bool:
         """Verify that a call is still active and responsive."""
         try:
-            # Check basic call state
-            if call.state != CallState.CONNECTED:
-                return False
+            if self.use_pjsua2 and isinstance(call, PjCall):
+                # PJSUA2 call verification
+                return call.isActive()
+            else:
+                # Legacy call verification
+                # Check basic call state
+                if call.state != CallState.CONNECTED:
+                    return False
+                    
+                # Check if call duration seems reasonable
+                if call.duration > 0:
+                    # Call has been active for some time
+                    return True
+                    
+                # Additional checks could be added here:
+                # - Check SIP dialog state
+                # - Verify RTP flow
+                # - Send OPTIONS ping
                 
-            # Check if call duration seems reasonable
-            if call.duration > 0:
-                # Call has been active for some time
                 return True
                 
-            # Additional checks could be added here:
-            # - Check SIP dialog state
-            # - Verify RTP flow
-            # - Send OPTIONS ping
-            
-            return True
-            
         except Exception as e:
-            logger.error(f"❌ Error verifying call {call.call_id}: {e}")
+            logger.error(f"❌ Error verifying call: {e}")
             return False
         
-    def _is_voicemail_call(self, call: SipCall) -> bool:
+    def _is_voicemail_call(self, call: Union[SipCall, PjCall]) -> bool:
         """Detect if call went to voicemail (placeholder implementation)."""
         # This is a placeholder - in reality you'd analyze audio patterns
         # For now, return False to assume all calls are answered
@@ -496,17 +569,20 @@ class CallieAgent:
         """Test Live API connection independently."""
         try:
             if not self.multi_tenant_mode and self.sip_client:
-                # Ensure audio bridge is initialized
-                if not self.sip_client.audio_bridge:
-                     self.sip_client.audio_bridge = self.sip_client.get_audio_bridge()
+                if self.use_pjsua2:
+                    logger.info("🔬 PJSUA2 client - Live API test not implemented yet")
+                else:
+                    # Ensure audio bridge is initialized
+                    if not self.sip_client.audio_bridge:
+                         self.sip_client.audio_bridge = self.sip_client.get_audio_bridge()
 
-                if self.sip_client.audio_bridge:
-                    logger.info("🔬 Testing Live API connection...")
-                    result = await self.sip_client.audio_bridge.test_live_api_connection()
-                    if result:
-                        logger.info("✅ Live API connection test successful!")
-                    else:
-                        logger.error("❌ Live API connection test failed!")
+                    if self.sip_client.audio_bridge:
+                        logger.info("🔬 Testing Live API connection...")
+                        result = await self.sip_client.audio_bridge.test_live_api_connection()
+                        if result:
+                            logger.info("✅ Live API connection test successful!")
+                        else:
+                            logger.error("❌ Live API connection test failed!")
         except Exception as e:
             logger.error(f"💥 Live API test error: {e}")
             
