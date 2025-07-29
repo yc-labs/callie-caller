@@ -14,6 +14,13 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
+# Kill any existing processes
+echo -e "${BLUE}🔄 Cleaning up existing processes...${NC}"
+pkill -f "python main.py" 2>/dev/null
+pkill -f "npm run dev" 2>/dev/null
+pkill -f "vite" 2>/dev/null
+sleep 2  # Give processes time to shut down
+
 # Function to cleanup on exit
 cleanup() {
     echo -e "\n${BLUE}🛑 Shutting down...${NC}"

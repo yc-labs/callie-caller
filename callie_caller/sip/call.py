@@ -152,7 +152,7 @@ Content-Length: {len(sdp_content)}
         if self.public_ip:
             via_header += f";received={self.public_ip}"
 
-        return f"""INVITE {self.invite_uri} SIP/2.0
+        return_msg = f"""INVITE {self.invite_uri} SIP/2.0
 {via_header}
 Max-Forwards: 70
 Contact: {self.contact_header}
@@ -168,6 +168,17 @@ User-Agent: {self.settings.device.user_agent}
 Content-Length: {len(sdp_content)}
 
 {sdp_content}"""
+        
+        # Log the authenticated INVITE for debugging
+        logger.info("--- AUTHENTICATED INVITE ---")
+        lines = return_msg.split('\n')
+        for i, line in enumerate(lines[:20], 1):  # Show first 20 lines
+            logger.info(f"{i:2d}: {line}")
+        if len(lines) > 20:
+            logger.info(f"... ({len(lines) - 20} more lines)")
+        logger.info("----------------------------")
+        
+        return return_msg
         
     def create_ack_message(self) -> str:
         """Create ACK message to complete call setup."""

@@ -32,6 +32,7 @@ services:
     # Add any additional environment variables needed for development here.
     environment:
       - LOG_LEVEL=DEBUG
+      - USE_WEB_UI=true
       
 volumes:
   callie_logs:

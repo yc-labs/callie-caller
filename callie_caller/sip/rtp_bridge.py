@@ -217,9 +217,16 @@ class RtpBridge:
         self.remote_endpoint: Optional[AudioEndpoint] = None  # Zoho server
         
         # Audio callbacks
-        self.audio_callback: Optional[Callable[[bytes, str], None]] = None
+        self.audio_callback: Optional[Callable] = None
         
-        # Audio recording for verification - now using WAV format
+        # Audio level callback for WebSocket updates
+        self.audio_level_callback: Optional[Callable] = None
+        
+        # Transcription
+        self.transcriber = None
+        self.transcription_callback: Optional[Callable] = None
+        
+        # WAV recording for debugging
         # Only enable in debug mode since Zoho handles recording in production
         self.record_audio = os.getenv("ENABLE_WAV_RECORDING", "false").lower() == "true"
         self.audio_dir = "captured_audio"
@@ -338,6 +345,19 @@ class RtpBridge:
                 self.remote_wav_recorder.open()
                 
                 logger.info(f"🎵 WAV recording files created for session {timestamp}")
+            
+            # Initialize transcriber if callback is set
+            if self.transcription_callback:
+                try:
+                    from callie_caller.audio.transcriber import AudioTranscriber
+                    self.transcriber = AudioTranscriber(self.transcription_callback)
+                    self.transcriber.start()
+                    logger.info("📝 Audio transcription enabled")
+                except Exception as e:
+                    logger.error(f"Failed to initialize transcriber: {e}")
+                    self.transcriber = None
+            else:
+                logger.warning("📝 No transcription callback set - transcription disabled")
             
             # Start bridge loop
             self.running = True
@@ -741,6 +761,23 @@ class RtpBridge:
                         logger.info("🗣️  VOICE ACTIVITY DETECTED - AI should be hearing you now!")
                     self._last_voice_time = time.time()
                     
+                # Emit audio level if callback is set
+                if self.audio_level_callback:
+                    try:
+                        self.audio_level_callback(pcm_audio, source == 'caller')
+                    except Exception as e:
+                        logger.error(f"Error in audio level callback: {e}")
+                
+                # Send to transcriber if enabled
+                if self.transcriber and pcm_audio:
+                    try:
+                        logger.debug(f"📝 Sending {len(pcm_audio)} bytes of {'caller' if source == 'caller' else 'remote'} audio to transcriber")
+                        self.transcriber.add_audio_chunk(pcm_audio, is_caller=(source == 'caller'))
+                    except Exception as e:
+                        logger.error(f"Error adding audio to transcriber: {e}")
+                elif not self.transcriber:
+                    logger.debug("📝 Transcriber not initialized - skipping audio capture")
+                    
         except Exception as e:
             logger.error(f"Error capturing RTP for AI: {e}")
             import traceback
@@ -954,6 +991,24 @@ class RtpBridge:
             return
             
         try:
+            # Emit audio level for AI audio
+            if self.audio_level_callback:
+                try:
+                    self.audio_level_callback(audio_data, False)  # False = AI audio
+                except Exception as e:
+                    logger.error(f"Error in audio level callback for AI: {e}")
+            
+            # Send to transcriber for AI audio
+            if self.transcriber and audio_data:
+                try:
+                    logger.debug(f"📝 Sending {len(audio_data)} bytes of AI audio to transcriber at 24kHz")
+                    # AI audio is 24kHz
+                    self.transcriber.add_audio_chunk(audio_data, is_caller=False, sample_rate=24000)
+                except Exception as e:
+                    logger.error(f"Error adding AI audio to transcriber: {e}")
+            elif not self.transcriber:
+                logger.debug("📝 Transcriber not initialized for AI audio")
+            
             # FIX: Pre-send silence to warm up the RTP stream and prevent initial choppiness
             if self._is_first_ai_chunk:
                 logger.info("🔥 WARMING UP RTP STREAM with 100ms of silence...")
@@ -1009,7 +1064,6 @@ class RtpBridge:
             expected_duration_ms = (sample_count / 24000) * 1000
             logger.info(f"⏱️  Expected duration (24kHz): {expected_duration_ms:.1f}ms")
             
-            # OPTIMIZED: Direct and precise audio processing pipeline
             # Step 1: Validate that this is really 24kHz, 16-bit PCM
             try:
                 samples = struct.unpack(f'<{sample_count}h', ai_audio_data)
@@ -1026,73 +1080,28 @@ class RtpBridge:
                 logger.error(f"❌ Failed to validate PCM audio: {e}")
                 return packets
             
-            # NEW Step 1.5: Enhance Voice Clarity (High-pass Filter)
-            try:
-                from pydub import AudioSegment
-                
-                # Load raw PCM data into an AudioSegment
-                audio_segment = AudioSegment(
-                    data=ai_audio_data,
-                    sample_width=2,  # 16-bit
-                    frame_rate=24000,
-                    channels=1
-                )
-                
-                # Apply a high-pass filter to remove low-frequency noise/muddiness
-                # A cutoff of 100-120Hz is standard for voice clarity
-                filtered_segment = audio_segment.high_pass_filter(120)
-                
-                # NEW: Apply dynamic range compression for consistent volume
-                compressed_segment = filtered_segment.compress_dynamic_range(
-                    threshold=-20.0,  # The level (in dBFS) above which to start compressing
-                    ratio=4.0,      # The compression ratio (e.g., 4:1)
-                    attack=5.0,     # Time (in ms) to react to loud sounds
-                    release=100.0   # Time (in ms) to recover after loud sounds
-                )
-
-                # Get the enhanced audio data back
-                ai_audio_data = compressed_segment.raw_data
-                logger.info(f"✨ Voice Clarity Enhanced: Applied 120Hz high-pass filter and compression")
-
-            except ImportError:
-                logger.warning("⚠️ pydub not installed, skipping voice clarity enhancement.")
-            except Exception as e:
-                logger.warning(f"⚠️ Voice clarity enhancement failed: {e}")
-
             # Step 2: High-quality resample from 24kHz to 8kHz (telephony standard)
+            # Simplified - skip pydub filters that may be causing distortion
             pcm_8khz_data = resample_simple(ai_audio_data, from_rate=24000, to_rate=8000)
             logger.info(f"🔄 PRECISE resample 24kHz→8kHz: {len(ai_audio_data)} → {len(pcm_8khz_data)} bytes")
             
-            # Validate resampling result
+            # Validate resampling
             expected_8khz_samples = sample_count // 3  # Exact 3:1 ratio (24kHz -> 8kHz)
-            expected_8khz_bytes = expected_8khz_samples * 2
-            if len(pcm_8khz_data) != expected_8khz_bytes:
-                logger.warning(f"⚠️  Resampling error: expected {expected_8khz_bytes} bytes, got {len(pcm_8khz_data)}")
+            actual_8khz_samples = len(pcm_8khz_data) // 2
+            logger.info(f"✅ Resampled: {actual_8khz_samples} samples (expected ~{expected_8khz_samples})")
             
-            # Step 3: Convert to A-law for RTP transmission  
-            from .audio_codec import pcm_to_alaw
-            alaw_data = pcm_to_alaw(pcm_8khz_data)
-            logger.info(f"🔄 PCM→A-law: {len(pcm_8khz_data)} → {len(alaw_data)} bytes")
+            # Step 3: Convert to A-law (telephony codec)
+            codec_data = pcm_to_alaw(pcm_8khz_data)
+            logger.info(f"🔄 PCM→A-law: {len(pcm_8khz_data)} → {len(codec_data)} bytes")
             
-            # Set codec parameters for A-law
-            codec_data = alaw_data
-            payload_type_to_use = 8    # A-law (PCMA)
-            samples_per_byte = 1       # A-law: each byte = 1 sample
-            sample_rate = 8000         # 8kHz
-            
-            # Step 4: Initialize precise timing for 8kHz audio stream
-            if not hasattr(self, '_ai_timestamp_base') or self._ai_timestamp_base == 0:
-                # Initialize with current time but convert to 8kHz sample units
-                self._ai_timestamp_base = int(time.time() * 8000) % (2**32)
-                self._ai_samples_sent = 0
-                logger.info(f"🕐 Initialized AI audio stream timing (8kHz) - base timestamp: {self._ai_timestamp_base}")
-            
-            # Step 5: Create precise RTP packets - OPTIMAL TIMING
-            payload_size = 80  # 80 samples = 10ms at 8kHz (optimal balance)
+            # Step 4: Package into RTP packets with A-law payload type
+            # RTP packet size for 20ms of 8kHz A-law audio
+            payload_size = 160  # 20ms * 8kHz = 160 samples = 160 bytes in A-law
             packet_index = 0
             
-            if len(codec_data) == 0:
-                logger.warning(f"⚠️  No A-law data to packetize")
+            # Check if codec conversion resulted in valid data
+            if not codec_data:
+                logger.error("❌ A-law conversion failed - no data")
                 return packets
             
             for i in range(0, len(codec_data), payload_size):
@@ -1131,8 +1140,8 @@ class RtpBridge:
             
             # Final validation
             total_samples_sent = sum(len(p) - 12 for p in packets)  # Subtract RTP header size
-            logger.info(f"✅ Created {len(packets)} HD VOICE RTP packets (16kHz G.722)")
-            logger.debug(f"📊 HD VOICE Pipeline: 24kHz({sample_count}s)→16kHz→G.722({total_samples_sent}bytes)→RTP")
+            logger.info(f"✅ Created {len(packets)} A-law RTP packets")
+            logger.debug(f"📊 Audio Pipeline: 24kHz({sample_count}s)→8kHz→A-law({total_samples_sent}bytes)→RTP")
             
         except Exception as e:
             logger.error(f"❌ Error creating RTP packets for AI audio: {e}")
@@ -1158,6 +1167,15 @@ class RtpBridge:
         self.silence_injection_running = False
         if self.silence_injection_thread and self.silence_injection_thread.is_alive():
             self.silence_injection_thread.join(timeout=2.0)
+        
+        # Stop transcriber
+        if self.transcriber:
+            try:
+                self.transcriber.stop()
+                logger.info("📝 Transcriber stopped")
+            except Exception as e:
+                logger.error(f"Error stopping transcriber: {e}")
+            self.transcriber = None
         
         # Clean up UPnP port forwarding
         self._cleanup_upnp()

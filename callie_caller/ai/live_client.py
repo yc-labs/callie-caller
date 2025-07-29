@@ -9,6 +9,9 @@ import pyaudio
 from typing import Optional, Callable, Any
 from google import genai
 from google.genai import types
+import time # Added for time.time()
+import websockets.exceptions # Added for websockets.exceptions.ConnectionClosedError
+import traceback # Added for traceback.format_exc()
 
 from callie_caller.config import get_settings
 from callie_caller.ai.tools import get_tool_manager
@@ -49,6 +52,9 @@ class AudioBridge:
         
         # SIP audio callback
         self.sip_audio_callback: Optional[Callable] = None
+        
+        # Transcription callback for WebSocket updates
+        self.transcription_callback: Optional[Callable] = None
         
         # Tool manager for function calling
         self.tool_manager = get_tool_manager()
@@ -95,6 +101,64 @@ Key instructions:
         """Set callback for sending audio to SIP call."""
         self.sip_audio_callback = callback
         logger.debug("SIP audio callback set")
+    
+    async def start_managed_conversation(self, initial_message: Optional[str] = None, max_duration_minutes: int = 14) -> None:
+        """Start a managed conversation with automatic reconnection for long calls.
+        
+        The Gemini Live API has session limits:
+        - Audio-only: 15 minutes
+        - Audio+video: 2 minutes
+        
+        This method automatically reconnects before hitting those limits.
+        
+        Args:
+            initial_message: Initial greeting to send to AI
+            max_duration_minutes: Max duration before reconnecting (default 14 min to stay under 15 min limit)
+        """
+        start_time = time.time()
+        session_count = 0
+        
+        while True:
+            session_count += 1
+            session_start = time.time()
+            
+            logger.info(f"🔄 Starting session #{session_count}")
+            
+            try:
+                # Start conversation
+                await self.start_conversation(initial_message if session_count == 1 else None)
+                
+                # Monitor session duration
+                while self.running:
+                    elapsed = (time.time() - session_start) / 60  # minutes
+                    
+                    if elapsed >= max_duration_minutes:
+                        logger.info(f"⏰ Session duration limit approaching ({elapsed:.1f} min), reconnecting...")
+                        await self.stop_conversation()
+                        break
+                    
+                    await asyncio.sleep(10)  # Check every 10 seconds
+                
+                # Check if we should continue
+                if not self.running:
+                    logger.info("🛑 Conversation ended by user")
+                    break
+                    
+                # Brief pause before reconnecting
+                logger.info("⏳ Reconnecting in 2 seconds...")
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                logger.error(f"💥 Error in managed conversation: {e}")
+                await asyncio.sleep(5)  # Wait before retry
+                
+                # Check total duration
+                total_elapsed = (time.time() - start_time) / 60
+                if total_elapsed > 60:  # Stop after 1 hour total
+                    logger.error("❌ Maximum total duration exceeded, stopping")
+                    break
+        
+        logger.info(f"📊 Managed conversation ended after {session_count} sessions")
     
     async def start_conversation(self, initial_message: Optional[str] = None) -> None:
         """Start real-time conversation with AI."""
@@ -195,7 +259,7 @@ Key instructions:
             try:
                 self.audio_out_queue.put_nowait({
                     "data": audio_data,
-                    "mime_type": "audio/pcm;rate=16000"  # FIXED: Specify 16kHz rate
+                    "mime_type": "audio/pcm"  # Don't specify rate - let the AI handle it
                 })
                 logger.debug(f"📨 Queued RTP audio for AI processing")
             except asyncio.QueueFull:
@@ -242,6 +306,14 @@ Key instructions:
         """Background task to receive audio from AI."""
         logger.info("📥 Audio-from-AI task started")
         audio_received_count = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 3
+        
+        # Track audio session stats for summarized logging
+        audio_session_start = time.time()
+        last_audio_log_time = time.time()
+        audio_chunks_since_log = 0
+        audio_bytes_since_log = 0
         
         while self.running and self.session:
             try:
@@ -253,11 +325,26 @@ Key instructions:
                         
                     if data := response.data:
                         audio_received_count += 1
+                        consecutive_errors = 0  # Reset error count on success
                         
                         # ENHANCED: Detailed audio analysis
                         self._analyze_ai_audio(data, audio_received_count)
                         
-                        logger.info(f"🔊 Received AI audio #{audio_received_count}: {len(data)} bytes")
+                        # Track audio stats instead of logging each chunk
+                        audio_chunks_since_log += 1
+                        audio_bytes_since_log += len(data)
+                        
+                        # Log summary every 5 seconds or every 100 chunks
+                        current_time = time.time()
+                        if (current_time - last_audio_log_time >= 5.0) or (audio_chunks_since_log >= 100):
+                            duration = current_time - audio_session_start
+                            avg_chunk_size = audio_bytes_since_log / audio_chunks_since_log if audio_chunks_since_log > 0 else 0
+                            logger.info(f"🔊 AI audio streaming: {audio_chunks_since_log} chunks, "
+                                      f"{audio_bytes_since_log:,} bytes in {current_time - last_audio_log_time:.1f}s "
+                                      f"(avg {avg_chunk_size:.0f} bytes/chunk, total {duration:.0f}s)")
+                            last_audio_log_time = current_time
+                            audio_chunks_since_log = 0
+                            audio_bytes_since_log = 0
                         
                         # Put audio in queue immediately
                         try:
@@ -273,6 +360,13 @@ Key instructions:
                         
                     if text := response.text:
                         logger.info(f"🤖 AI text response: {text}")
+                        consecutive_errors = 0  # Reset error count on success
+                        # Emit transcription via callback if available
+                        if self.transcription_callback:
+                            try:
+                                await asyncio.to_thread(self.transcription_callback, 'AI', text, True)
+                            except Exception as e:
+                                logger.error(f"Error in transcription callback: {e}")
                     
                     # Handle function calls if present
                     if hasattr(response, 'function_call') and response.function_call:
@@ -285,6 +379,25 @@ Key instructions:
             except asyncio.CancelledError:
                 logger.info("📥 Audio receive task cancelled")
                 break
+            except websockets.exceptions.ConnectionClosedError as e:
+                consecutive_errors += 1
+                if "Deadline expired" in str(e):
+                    logger.warning(f"⏰ Gemini Live API session deadline expired (15min audio / 2min video limit)")
+                    if consecutive_errors < max_consecutive_errors:
+                        logger.info(f"🔄 Attempting to reconnect... (attempt {consecutive_errors}/{max_consecutive_errors})")
+                        # Signal for reconnection
+                        self.running = False  # This will trigger reconnection in the main conversation loop
+                        break
+                    else:
+                        logger.error(f"❌ Max reconnection attempts reached. Stopping.")
+                        self.running = False
+                        break
+                else:
+                    logger.error(f"💥 WebSocket connection error: {e}")
+                    logger.error(f"📋 Stack trace: {traceback.format_exc()}")
+                    # Don't break - try to continue receiving
+                    await asyncio.sleep(0.5)  # Brief pause before retry
+                    continue
             except Exception as e:
                 logger.error(f"💥 Error in audio receive task: {e}")
                 import traceback
@@ -383,44 +496,48 @@ Key instructions:
         logger.info("🔈 Audio-play task started")
         audio_sent_count = 0
         audio_buffer = b''  # Buffer to accumulate chunks
+        chunk_count = 0     # Track chunks in current buffer
         
         # ADAPTIVE BUFFERING: Larger at startup for smoothness, smaller for steady-state latency
         startup_buffer_size = 7200   # ~150ms at 24kHz - smooth startup
         steady_buffer_size = 2400    # ~50ms at 24kHz - low latency
-        startup_chunks_needed = 3    # Number of chunks before switching to steady state
+        startup_chunks_needed = 3    # Number of buffers (not chunks!) before switching to steady state
         
         buffer_target_size = startup_buffer_size
+        buffers_sent = 0  # Track buffers sent, not individual chunks
         logger.info(f"🚀 STARTUP MODE: Using {startup_buffer_size} byte buffer (~150ms) for smooth start")
         
         while self.running:
             try:
                 # FIXED: Buffer multiple chunks to avoid boundary artifacts
                 audio_data = await self.audio_in_queue.get()
-                audio_sent_count += 1
+                chunk_count += 1
                 
                 # Add to buffer
                 audio_buffer += audio_data
-                logger.debug(f"🎵 Buffered AI audio #{audio_sent_count}: {len(audio_data)} bytes (buffer: {len(audio_buffer)} bytes)")
+                logger.debug(f"🎵 Buffered AI audio chunk: {len(audio_data)} bytes (buffer: {len(audio_buffer)} bytes)")
                 
                 # Process buffer when we have enough data for smooth audio
                 if len(audio_buffer) >= buffer_target_size or not self.running:
-                    logger.info(f"🎵 Processing buffered AI audio: {len(audio_buffer)} bytes from {audio_sent_count} chunks")
+                    logger.info(f"🎵 Processing buffered AI audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
+                    buffers_sent += 1
+                    chunk_count = 0  # Reset chunk count
                     
                     # ADAPTIVE: Switch to steady-state mode after startup
-                    if audio_sent_count >= startup_chunks_needed and buffer_target_size == startup_buffer_size:
+                    if buffers_sent >= startup_chunks_needed and buffer_target_size == startup_buffer_size:
                         buffer_target_size = steady_buffer_size
                         logger.info(f"⚡ STEADY STATE: Switched to {steady_buffer_size} byte buffer (~50ms) for low latency")
-                
-                # Send to SIP call if callback is set
-                if self.sip_audio_callback:
-                    logger.info(f"📞 Sending buffered AI audio to SIP call...")
-                    await asyncio.to_thread(self.sip_audio_callback, audio_buffer)
-                    logger.info(f"✅ Buffered AI audio sent to SIP successfully")
-                else:
-                    logger.warning("⚠️  No SIP audio callback set - audio not sent to call")
                     
-                # CRITICAL FIX: Always clear buffer after processing (was only clearing in else clause!)
-                audio_buffer = b''
+                    # Send to SIP call if callback is set
+                    if self.sip_audio_callback:
+                        logger.info(f"📞 Sending buffered AI audio to SIP call...")
+                        await asyncio.to_thread(self.sip_audio_callback, audio_buffer)
+                        logger.info(f"✅ Buffered AI audio sent to SIP successfully")
+                    else:
+                        logger.warning("⚠️  No SIP audio callback set - audio not sent to call")
+                        
+                    # CRITICAL FIX: Always clear buffer after processing
+                    audio_buffer = b''
                     
             except Exception as e:
                 logger.error(f"💥 Error in audio play task: {e}")
@@ -436,7 +553,7 @@ Key instructions:
             except Exception as e:
                 logger.error(f"💥 Error processing final audio buffer: {e}")
                 
-        logger.info(f"🔈 Audio-play task ended (sent {audio_sent_count} audio chunks)")
+        logger.info(f"🔈 Audio-play task ended (sent {buffers_sent} audio buffers)")
     
     async def test_live_api_connection(self) -> bool:
         """Test Live API connection with simulated audio."""

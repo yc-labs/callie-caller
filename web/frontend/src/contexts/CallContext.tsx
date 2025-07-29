@@ -18,6 +18,7 @@ export interface AudioLevels {
 }
 
 export interface LogEntry {
+  call_id: string;
   type: string;
   level: string;
   message: string;
@@ -25,6 +26,7 @@ export interface LogEntry {
 }
 
 export interface Transcription {
+  call_id: string;
   speaker: 'caller' | 'ai';
   text: string;
   is_final: boolean;
@@ -81,6 +83,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for audio levels
     socket.on('audio_levels', (data: any) => {
+      console.log('Received audio levels:', data);
       if (currentCall && data.call_id === currentCall.call_id) {
         setAudioLevels({ caller: data.caller, ai: data.ai });
       }
@@ -88,14 +91,16 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Listen for logs
     socket.on('log_entry', (data: LogEntry) => {
-      if (currentCall && data.type === currentCall.call_id) {
+      console.log('Received log entry:', data);
+      if (currentCall && data.call_id === currentCall.call_id) {
         setLogs(prev => [...prev, data]);
       }
     });
 
     // Listen for transcriptions
     socket.on('transcription', (data: Transcription) => {
-      if (currentCall) {
+      console.log('Received transcription:', data);
+      if (currentCall && data.call_id === currentCall.call_id) {
         setTranscriptions(prev => {
           if (data.is_final) {
             return [...prev, data];

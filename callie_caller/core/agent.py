@@ -85,6 +85,10 @@ class CallieAgent:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
         
+        # Track calls that have AI conversations started
+        self._ai_conversations_started = set()
+        self._conversation_check_task = None
+        
         mode_str = "multi-tenant" if self.multi_tenant_mode else "single-tenant (legacy)"
         sip_str = "PJSUA2" if self.use_pjsua2 else "legacy"
         logger.info(f"Callie Agent initialized in {mode_str} mode with {sip_str} SIP implementation")
@@ -128,6 +132,7 @@ class CallieAgent:
             self.sip_client = PjSipClient(on_incoming_call=self._handle_incoming_call_pjsua2)
         else:
             self.sip_client = SipClient(on_incoming_call=self._handle_incoming_call)
+            self.sip_client.agent = self  # Pass agent reference for WebSocket notifications
             
         self.multi_tenant_manager = None
         logger.info(f"📞 Single-tenant mode initialized with {'PJSUA2' if self.use_pjsua2 else 'legacy'} SIP client")
@@ -348,6 +353,10 @@ class CallieAgent:
                     call_info = call.get_info_dict()
                     if call_info['connected']:
                         logger.info(f"✅ Call connected after {time.time() - start_time:.1f}s")
+                        
+                        # Set up RTP callbacks for web UI
+                        self.setup_rtp_callbacks(str(call_info['id']))
+                        
                         return True
                     elif call_info['state'] == 6:  # DISCONNECTED
                         logger.error("❌ Call failed to connect")
@@ -370,84 +379,44 @@ class CallieAgent:
                 ai_message=message
             )
             
+            # Set up callback to start AI conversation when SIP INFO indicates call is active
+            def on_call_connected(connected_call):
+                """Start AI conversation when call becomes active (via SIP INFO)."""
+                if connected_call.call_id not in self._ai_conversations_started:
+                    logger.info(f"🤖 SIP INFO callback triggered for call {connected_call.call_id}")
+                    self._ai_conversations_started.add(connected_call.call_id)
+                    
+                    if self._loop and self._loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._handle_call_conversation(connected_call),
+                            self._loop
+                        )
+                        logger.info(f"🔄 AI conversation scheduled for call {connected_call.call_id}")
+                    else:
+                        logger.error(f"🤖 No event loop available for AI conversation startup!")
+            
+            self.sip_client.call_connected_callback = on_call_connected
+            logger.info(f"🤖 SIP INFO callback set on SIP client")
+            
             # Make the call
             success = self.sip_client.make_call(call)
             
-            if success and call.state == CallState.CONNECTED:
+            # Return true immediately if call was initiated successfully
+            # Don't wait for connection - that will be handled asynchronously
+            if success:
                 # Track the call for conversation handling
                 self.call_conversations[call.call_id] = f"outbound-{int(time.time())}-{phone_number}"
                 
-                # Start audio conversation in the event loop
-                if self._loop and self._loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._handle_call_conversation(call),
-                        self._loop
-                    )
-                    logger.info(f"🔄 Call conversation scheduled in event loop")
-            
-            return success
-    
-    def is_call_active(self) -> bool:
-        """Check if there are any active calls."""
-        if self.multi_tenant_mode:
-            return len(self.multi_tenant_manager.active_calls) > 0 if self.multi_tenant_manager else False
-        else:
-            return len(getattr(self.sip_client, 'active_calls', {})) > 0
-    
-    def _handle_incoming_call_pjsua2(self, call: PjCall) -> None:
-        """Handle incoming PJSUA2 call."""
-        logger.info(f"Incoming PJSUA2 call")
-        
-        # Answer the call
-        call.answer()
-        logger.info(f"Answered PJSUA2 call")
-        
-    def _handle_incoming_call(self, call: Union[SipCall, PjCall]) -> None:
-        """Handle incoming SIP call in single-tenant mode."""
-        if isinstance(call, PjCall):
-            self._handle_incoming_call_pjsua2(call)
-            return
-            
-        logger.info(f"Incoming call from {call.target_number}")
-        
-        # Start conversation
-        conversation_id = f"incoming-{int(time.time())}-{call.target_number}"
-        self.conversation_manager.start_conversation(
-            conversation_id=conversation_id,
-            phone_number=call.target_number
-        )
-        
-        # Link call and conversation
-        self.call_conversations[call.call_id] = conversation_id
-        
-        # Generate greeting
-        greeting = self.conversation_manager.generate_greeting(
-            conversation_id,
-            context=f"Incoming call from {call.target_number}"
-        )
-        
-        # Answer call
-        call.answer()
-        logger.info(f"Answered call {call.call_id} with greeting: {greeting}")
-        
-        if call.state == CallState.CONNECTED:
-            # Handle async conversation for incoming calls
-            try:
-                if self._loop and self._loop.is_running():
-                    # Schedule the conversation in the existing event loop
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._handle_call_conversation(call),
-                        self._loop
-                    )
-                    logger.info(f"🔄 Incoming call conversation scheduled in event loop")
-                else:
-                    logger.error("⚠️  No event loop available for incoming call conversation")
-                    call.hangup()
-                    
-            except Exception as e:
-                logger.error(f"Error starting incoming call conversation: {e}")
-                call.hangup()
+                # Set up RTP callbacks for web UI
+                self.setup_rtp_callbacks(call.call_id)
                 
+                # Note: AI conversation will be started automatically by the polling mechanism
+                # when the call connects (no manual callback needed)
+                
+                return True
+            
+            return False
+    
     async def _handle_call_conversation(self, call: Union[SipCall, PjCall]) -> None:
         """Handle conversation for a connected call."""
         if self.use_pjsua2:
@@ -606,15 +575,126 @@ class CallieAgent:
     def _start_event_loop(self) -> None:
         """Start asyncio event loop for audio conversations."""
         try:
+            logger.info("🔄 Creating new event loop...")
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
-            logger.info("Event loop started for audio conversations")
-            self._loop.run_forever()
-        except Exception as e:
-            logger.error(f"Error in event loop: {e}")
-        finally:
-            logger.info("Event loop stopped")
+            logger.info("✅ Event loop created and set")
             
+            logger.info("🤖 Starting auto-conversation checker...")
+            # Start the conversation check task using the loop
+            self._conversation_check_task = self._loop.create_task(self._check_and_start_conversations())
+            logger.info("✅ Auto-conversation checker task created")
+            
+            logger.info("🔄 Starting event loop run_forever()...")
+            # Keep the loop running
+            self._loop.run_forever()
+            logger.info("⚠️  Event loop run_forever() ended (this shouldn't happen)")
+            
+        except Exception as e:
+            logger.error(f"💥 Critical error in event loop: {e}", exc_info=True)
+            import traceback
+            logger.error(f"💥 Full traceback: {traceback.format_exc()}")
+        finally:
+            logger.info("🛑 Event loop thread is exiting")
+            
+    async def _check_and_start_conversations(self):
+        """Periodically check for calls and start AI conversations after a delay."""
+        call_start_times = {}  # Track when calls were first seen
+        
+        while True:
+            try:
+                if self.sip_client and hasattr(self.sip_client, 'active_calls'):
+                    current_time = time.time()
+                    
+                    for call_id, call in self.sip_client.active_calls.items():
+                        # Track when we first see this call
+                        if call_id not in call_start_times:
+                            call_start_times[call_id] = current_time
+                            logger.info(f"🔍 New call detected: {call_id}")
+                        
+                        # Check if call has been active for 5+ seconds and doesn't have AI yet
+                        call_age = current_time - call_start_times[call_id]
+                        if (call_age >= 5.0 and call_id not in self._ai_conversations_started):
+                            logger.info(f"🤖 Auto-starting AI conversation for call {call_id} (age: {call_age:.1f}s)")
+                            self._ai_conversations_started.add(call_id)
+                            
+                            # Start the AI conversation
+                            asyncio.create_task(self._handle_call_conversation(call))
+                    
+                    # Clean up old call tracking
+                    active_call_ids = set(self.sip_client.active_calls.keys())
+                    for call_id in list(call_start_times.keys()):
+                        if call_id not in active_call_ids:
+                            del call_start_times[call_id]
+                            logger.info(f"🗑️  Cleaned up tracking for ended call {call_id}")
+                            
+            except Exception as e:
+                logger.error(f"Error in conversation check: {e}")
+            
+            # Check every 2 seconds
+            await asyncio.sleep(2.0)
+    
+    def is_call_active(self) -> bool:
+        """Check if there are any active calls."""
+        if self.multi_tenant_mode:
+            return len(self.multi_tenant_manager.active_calls) > 0 if self.multi_tenant_manager else False
+        else:
+            return len(getattr(self.sip_client, 'active_calls', {})) > 0
+    
+    def _handle_incoming_call_pjsua2(self, call: PjCall) -> None:
+        """Handle incoming PJSUA2 call."""
+        logger.info(f"Incoming PJSUA2 call")
+        
+        # Answer the call
+        call.answer()
+        logger.info(f"Answered PJSUA2 call")
+        
+    def _handle_incoming_call(self, call: Union[SipCall, PjCall]) -> None:
+        """Handle incoming SIP call in single-tenant mode."""
+        if isinstance(call, PjCall):
+            self._handle_incoming_call_pjsua2(call)
+            return
+            
+        logger.info(f"Incoming call from {call.target_number}")
+        
+        # Start conversation
+        conversation_id = f"incoming-{int(time.time())}-{call.target_number}"
+        self.conversation_manager.start_conversation(
+            conversation_id=conversation_id,
+            phone_number=call.target_number
+        )
+        
+        # Link call and conversation
+        self.call_conversations[call.call_id] = conversation_id
+        
+        # Generate greeting
+        greeting = self.conversation_manager.generate_greeting(
+            conversation_id,
+            context=f"Incoming call from {call.target_number}"
+        )
+        
+        # Answer call
+        call.answer()
+        logger.info(f"Answered call {call.call_id} with greeting: {greeting}")
+        
+        if call.state == CallState.CONNECTED:
+            # Handle async conversation for incoming calls
+            try:
+                if self._loop and self._loop.is_running():
+                    # Schedule the conversation in the existing event loop
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._handle_call_conversation(call),
+                        self._loop
+                    )
+                    logger.info(f"🔄 Incoming call conversation scheduled in event loop")
+                else:
+                    logger.error("⚠️  No event loop available for incoming call conversation")
+                    call.hangup()
+                    
+            except Exception as e:
+                logger.error(f"Error starting incoming call conversation: {e}")
+                call.hangup()
+                
     def _setup_flask_routes(self) -> None:
         """Setup Flask routes for webhooks and API."""
         
@@ -919,3 +999,94 @@ class CallieAgent:
             })
         
         return base_status 
+
+    def get_active_audio_bridge(self) -> Optional[Any]:
+        """Get the active audio bridge if available."""
+        if hasattr(self, 'sip_client') and hasattr(self.sip_client, 'audio_bridge'):
+            return self.sip_client.audio_bridge
+        return None
+    
+    def setup_rtp_callbacks(self, call_id: str = None):
+        """Set up callbacks for RTP bridge if web API is active."""
+        if hasattr(self, 'web_api') and hasattr(self, 'sip_client') and self.sip_client.rtp_bridge:
+            logger.info("Setting up RTP bridge callbacks for web API")
+            
+            # If no call_id provided, use a default one
+            if not call_id and hasattr(self.web_api, 'active_calls') and self.web_api.active_calls:
+                # Get the most recent call
+                call_id = list(self.web_api.active_calls.keys())[-1]
+            
+            if call_id:
+                # Set audio level callback
+                def audio_level_callback(audio_data: bytes, is_caller: bool):
+                    """Emit audio levels via WebSocket"""
+                    self.web_api.emit_audio_levels(call_id, audio_data, is_caller)
+                
+                self.sip_client.rtp_bridge.audio_level_callback = audio_level_callback
+                logger.info("✅ Audio level callback set on RTP bridge")
+                
+                # Set transcription callback
+                def rtp_transcription_callback(speaker: str, text: str, is_final: bool):
+                    """Emit transcriptions from RTP audio"""
+                    logger.debug(f"📝 RTP transcription: {speaker}: {text} (final={is_final})")
+                    self.web_api.emit_transcription(call_id, speaker, text, is_final)
+                
+                self.sip_client.rtp_bridge.transcription_callback = rtp_transcription_callback
+                logger.info("✅ Transcription callback set on RTP bridge")
+    
+    def register_test_mode(self) -> bool:
+        """Register for test mode."""
+        if self.sip_client:
+            return self.sip_client.register_test_mode()
+        return False 
+
+    async def start_ai_conversation(self, call_id: str, initial_message: Optional[str] = None):
+        """Start AI conversation for the given call.
+        
+        Args:
+            call_id: The call ID
+            initial_message: Optional initial message to send to AI
+        """
+        if not hasattr(self, 'ai_client') or not self.ai_client:
+            logger.error("No AI client available")
+            return
+            
+        if self.ai_client.model == 'gemini_live':
+            from callie_caller.ai.live_client import AudioBridge
+            
+            # Create audio bridge for this call
+            self.audio_bridge = AudioBridge()
+            
+            # Set up SIP audio callback
+            if hasattr(self, 'sip_client') and hasattr(self.sip_client, 'rtp_bridge'):
+                def sip_audio_callback(audio_data: bytes):
+                    """Callback to send AI audio to SIP."""
+                    if self.sip_client.rtp_bridge:
+                        # Forward audio to RTP bridge
+                        self.sip_client.rtp_bridge.send_ai_audio(audio_data)
+                        
+                self.audio_bridge.set_sip_audio_callback(sip_audio_callback)
+                
+                # Set transcription callback if web API is active
+                if hasattr(self, 'web_api') and self.web_api:
+                    def transcription_callback(speaker: str, text: str, is_final: bool):
+                        """Forward transcriptions to web API."""
+                        if self.web_api:
+                            self.web_api.emit_transcription(call_id, speaker, text, is_final)
+                    
+                    self.audio_bridge.set_transcription_callback(transcription_callback)
+            
+            # Start the managed conversation with automatic reconnection
+            asyncio.create_task(self.audio_bridge.start_managed_conversation(
+                initial_message=initial_message,
+                max_duration_minutes=14  # Reconnect before 15-minute limit
+            ))
+            logger.info(f"🎤 Started managed AI conversation for call {call_id}")
+        else:
+            # For text-based models, create conversation
+            if call_id not in self.conversations:
+                self.conversations[call_id] = self.ai_client.create_conversation()
+            
+            if initial_message:
+                response = self.conversations[call_id].send_message(initial_message)
+                logger.info(f"AI initial response: {response}") 

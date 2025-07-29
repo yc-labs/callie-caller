@@ -46,6 +46,12 @@ class SipClient:
         self.local_port: Optional[int] = None
         self.running = False
         self.registered = False
+        self.test_mode = False
+        self._shutdown_event = threading.Event()
+        
+        # Callback for when a call connects
+        self.call_connected_callback = None
+        
         self.active_calls: Dict[str, SipCall] = {}
         
         # Threading for message handling
@@ -58,6 +64,9 @@ class SipClient:
         self.audio_bridge: Optional[AudioBridge] = None
         self._conversation_task: Optional[asyncio.Task] = None
         
+        # Callback for when a call connects
+        self.call_connected_callback = None
+
     async def start_audio_conversation(self, call: SipCall, initial_message: Optional[str] = None) -> None:
         """
         Start real-time audio conversation for a connected call.
@@ -265,16 +274,30 @@ class SipClient:
                     auth_header=auth_header,
                     is_proxy_auth=(response.status_code == 407)
                 )
-                # Don't wait here, the response will be handled by the main listener
-                self._send_message(auth_invite)
+                # Send authenticated INVITE and wait for response
+                logger.info(f"📤 Sending authenticated INVITE for call {call.call_id}")
+                auth_response = self._send_request_and_wait(f"{call.cseq} INVITE", auth_invite)
+                
+                if auth_response and auth_response.status_code >= 400:
+                    logger.error(f"Authenticated INVITE failed: {auth_response.status_code} {auth_response.status_text}")
+                    call.fail(f"Auth failed: {auth_response.status_code}")
+                    return False
+                elif not auth_response:
+                    logger.error("No response to authenticated INVITE")
+                    call.fail("Auth timeout")
+                    return False
+                    
+                logger.info(f"✅ Authenticated INVITE accepted, proceeding...")
 
             elif response and response.status_code >= 400:
                 logger.error(f"Call failed with initial response: {response.status_code} {response.status_text}")
                 call.fail(f"Initial error: {response.status_code}")
                 return False
                 
-            # Step 5: Wait for the call to be connected
-            return self._wait_for_call_to_connect(call)
+            # Step 5: Return immediately after sending INVITE - don't wait for connection
+            # The connection will be handled asynchronously via the SIP message listener
+            logger.info(f"📤 INVITE sent for call {call.call_id}, returning immediately")
+            return True
 
         except Exception as e:
             logger.error(f"Call initiation failed: {e}", exc_info=True)
@@ -301,29 +324,21 @@ class SipClient:
         if call.state == CallState.CONNECTED:
             logger.info("🎉 Call Answered and Connected!")
             
-            # Send ACK for the 200 OK
-            ack_msg = call.create_ack_message()
-            self._send_message(ack_msg)
+            # ACK is now sent immediately in _handle_response_for_call
+            # Configure RTP bridge is also done there
             
-            # Configure RTP bridge with remote endpoint from 200 OK's SDP
-            if call.remote_audio_params and self.rtp_bridge:
-                logger.info(f"🎤 Remote audio endpoint: {call.remote_audio_params.ip_address}:{call.remote_audio_params.port}")
-                self.rtp_bridge.set_remote_endpoint(call.remote_audio_params)
+            # Log SDP configuration for debugging
+            if self.rtp_bridge and call.remote_audio_params:
                 bridge_port = self.rtp_bridge.get_bridge_port()
-                logger.info(f"🌉 RTP bridge configured for media path: Phone ↔️ Bridge ({bridge_port}) ↔️ Remote")
-                
-                # Log SDP configuration for debugging
                 logger.info(f"📋 SDP Configuration Summary:")
                 logger.info(f"   • Bridge listening on: ALL INTERFACES:{bridge_port}")
                 logger.info(f"   • SDP advertised: {call.public_ip or call.local_ip}:{bridge_port}")
                 logger.info(f"   • Remote sends to: {call.remote_audio_params.ip_address}:{call.remote_audio_params.port}")
                 logger.info(f"   • NAT Traversal: {'ENABLED' if call.public_ip else 'LOCAL ONLY'}")
-                
-                # Start test audio injection if test mode is enabled
-                self._start_test_audio_injection_when_connected()
-            else:
-                logger.warning("⚠️ No remote audio params found, RTP bridge may not work.")
-                
+            
+            # Start test audio injection if test mode is enabled
+            self._start_test_audio_injection_when_connected()
+            
             return True
         else:
             logger.error(f"❌ Call failed to connect. Final state: {call.state.value}")
@@ -383,10 +398,42 @@ class SipClient:
                 logger.info(f"📥 {'-'*50}")
                 
                 # Parse and analyze the message
-                if message.startswith('SIP/2.0'):
-                    self._handle_sip_response(message, addr)
+                if not message.strip():
+                    # Empty keepalive packet - common for NAT traversal
+                    logger.debug(f"🔄 Received NAT keepalive from {addr}")
+                elif message.startswith('SIP/2.0'):
+                    self._dispatch_message(message, addr)
                 elif any(method in message.split('\n')[0] for method in ['INVITE', 'BYE', 'ACK', 'CANCEL', 'OPTIONS', 'REGISTER']):
-                    self._handle_sip_request(message, addr)
+                    self._dispatch_message(message, addr)
+                elif "INFO" in message.split('\n')[0]:
+                    # Extract JSON payload from INFO messages to detect call state
+                    try:
+                        # Find the JSON payload in the message
+                        json_start = message.find('{"action"')
+                        if json_start != -1:
+                            json_payload = message[json_start:].strip()
+                            import json
+                            info_data = json.loads(json_payload)
+                            
+                            if info_data.get("action") == "record":
+                                call_type = info_data.get("type", "unknown")
+                                logger.info(f"📊 SIP INFO: Call recording {call_type}")
+                                
+                                # Trigger AI conversation when call becomes active
+                                if call_type == "actionEnabled":
+                                    logger.info(f"🤖 Call became active (recording enabled) - triggering AI conversation")
+                                    if self.call_connected_callback:
+                                        for call in self.active_calls.values():
+                                            try:
+                                                self.call_connected_callback(call)
+                                                logger.info(f"🤖 AI conversation triggered via SIP INFO for call {call.call_id}")
+                                                break  # Only trigger for first active call
+                                            except Exception as e:
+                                                logger.error(f"Error in SIP INFO callback: {e}")
+                                
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.debug(f"Could not parse SIP INFO JSON: {e}")
+                
                 else:
                     logger.warning(f"⚠️  Unknown SIP message type from {addr}")
                     
@@ -450,26 +497,68 @@ class SipClient:
             # Send 200 OK response to BYE
             self._send_bye_response(call_id, cseq, addr)
             
+            # Clean up the call
+            if matching_call:
+                logger.info(f"🔚 Cleaning up call {call_id} after BYE")
+                # Update call state
+                matching_call.state = CallState.ENDED
+                
+                # Remove from active calls
+                if call_id in self.active_calls:
+                    del self.active_calls[call_id]
+                    logger.info(f"✅ Removed call {call_id} from active calls")
+                
+                # Stop RTP bridge if this was the last call
+                if not self.active_calls and self.rtp_bridge:
+                    logger.info("🛑 Stopping RTP bridge - no more active calls")
+                    self.rtp_bridge.stop_bridge()
+                    self.rtp_bridge = None
+                
+                # Stop AI conversation if active
+                if self.audio_bridge and self.audio_bridge.running:
+                    logger.info("🛑 Stopping AI conversation after BYE")
+                    asyncio.run_coroutine_threadsafe(
+                        self.audio_bridge.stop_conversation(),
+                        self.event_loop
+                    )
+                
+                # Notify WebSocket that call has ended
+                if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'web_api') and self.agent.web_api:
+                    try:
+                        # Find the active call ID in web_api
+                        for web_call_id, call_info in self.agent.web_api.active_calls.items():
+                            if call_info.get('sip_call_id') == call_id:
+                                self.agent.web_api.ws_manager.emit_call_state(web_call_id, 'ended')
+                                # Clean up from active calls
+                                del self.agent.web_api.active_calls[web_call_id]
+                                logger.info(f"✅ Notified WebSocket that call {web_call_id} ended")
+                                break
+                    except Exception as e:
+                        logger.error(f"Error notifying WebSocket of call end: {e}")
+                
         elif method == 'INVITE':
             logger.info(f"📞 INVITE received for call {call_id}")
             # Handle INVITE normally...
             
         # Handle other methods...
 
-    def _handle_sip_response(self, message: str, addr: tuple) -> None:
-        """Handle SIP responses with detailed logging."""
-        lines = message.split('\n')
-        status_line = lines[0].strip()
+    def _handle_sip_response(self, response: SipResponse, call: SipCall) -> None:
+        """Handle SIP response messages."""
+        logger.info(f"📥 SIP Response: {response.status_code} {response.status_text} for call {call.call_id}")
+        logger.debug(f"📥 Response headers: {response.headers}")
+        
+        if response.status_code == 100:
+            logger.info(f"📞 Call {call.call_id} is trying...")
         
         # **NEW: Enhanced response logging**
         logger.info(f"📤 SIP RESPONSE ANALYSIS:")
-        logger.info(f"📤   Status: {status_line}")
-        logger.info(f"📤   From: {addr[0]}:{addr[1]}")
+        logger.info(f"📤   Status: {response.status_line}")
+        logger.info(f"📤   From: {call.remote_ip}:{call.remote_port}")
         logger.info(f"📤   Time: {time.time():.3f}")
         
         # Extract headers
         headers = {}
-        for line in lines[1:]:
+        for line in response.headers.split('\r\n'):
             if ':' in line:
                 key, value = line.split(':', 1)
                 headers[key.strip().lower()] = value.strip()
@@ -488,7 +577,7 @@ class SipClient:
             
         # Continue with normal response handling...
         # Dispatch the full message for proper processing
-        self._dispatch_message(message, addr)
+        self._dispatch_message(response.message, (call.remote_ip, call.remote_port))
 
     def _send_bye_response(self, call_id: str, cseq: str, addr: tuple) -> None:
         """Send 200 OK response to BYE request."""
@@ -619,14 +708,45 @@ Content-Length: 0
                 self._handle_cancel(call, response.headers)
 
     def _handle_response_for_call(self, call: SipCall, response: SipResponse):
-        """Update call state based on a SIP response."""
+        """Handle SIP response for a specific call."""
+        logger.info(f"🔄 Handling response {response.status_code} {response.status_text} for call {call.call_id}")
+        
         if response.status_code == 180 or response.status_code == 183:
             logger.info(f"Phone is ringing ({response.status_code} {response.status_text})...")
             call.set_ringing()
         
         elif response.status_code == 200 and "INVITE" in response.headers.get("cseq", ""):
+            logger.info(f"🎉 Received 200 OK response to INVITE for call {call.call_id}")
             if response.body:
                 call.remote_audio_params = extract_audio_params_from_sip_response(response.body)
+            
+            # Send ACK immediately
+            logger.info(f"📞 Call connected! Sending ACK for call {call.call_id}")
+            ack_msg = call.create_ack_message()
+            logger.debug(f"📤 ACK Message:\n{ack_msg}")
+            self._send_message(ack_msg)
+            logger.info(f"✅ ACK sent for call {call.call_id}")
+            
+            # Configure RTP bridge with remote endpoint
+            if call.remote_audio_params and self.rtp_bridge:
+                logger.info(f"🎤 Configuring RTP bridge with remote endpoint")
+                self.rtp_bridge.set_remote_endpoint(call.remote_audio_params)
+            
+            # Notify that the call is connected - this should start AI conversation
+            if self.call_connected_callback:
+                try:
+                    logger.info(f"🤖 Triggering call connected callback for call {call.call_id}")
+                    self.call_connected_callback(call)
+                    logger.info(f"🤖 AI conversation startup triggered for connected call {call.call_id}")
+                except Exception as e:
+                    logger.error(f"Error in call connected callback: {e}")
+            else:
+                logger.warning(f"🤖 No call connected callback set - AI conversation won't start!")
+            
+            # Start test audio injection if in test mode
+            self._start_test_audio_injection_when_connected()
+            
+            # Now mark as answered
             call.answer()
             
         elif response.status_code >= 400:

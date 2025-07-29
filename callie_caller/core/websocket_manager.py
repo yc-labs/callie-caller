@@ -7,7 +7,8 @@ import logging
 from typing import Dict, Set, Optional, Any
 from datetime import datetime
 import threading
-from flask_socketio import SocketIO, emit, join_room, leave_room, request
+from flask import request
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 logger = logging.getLogger(__name__)
 

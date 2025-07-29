@@ -9,7 +9,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Typography,
   Collapse,
   Alert,
   Stack,
@@ -21,7 +20,7 @@ const CallControl: React.FC = () => {
   const { currentCall, makeCall, endCall } = useCall();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [useAI, setUseAI] = useState(true);
-  const [aiModel, setAiModel] = useState('gemini-2.0-flash-001');
+  const [aiModel, setAiModel] = useState('gemini-2.0-flash-live-001');
   const [contextMessage, setContextMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,9 +107,10 @@ const CallControl: React.FC = () => {
                 label="AI Model"
                 disabled={!!currentCall}
               >
-                <MenuItem value="gemini-2.0-flash-001">Gemini 2.0 Flash (Fast)</MenuItem>
-                <MenuItem value="gemini-1.5-pro">Gemini 1.5 Pro (Advanced)</MenuItem>
-                <MenuItem value="gemini-1.5-flash">Gemini 1.5 Flash</MenuItem>
+                <MenuItem value="gemini-2.0-flash-live-001">Gemini 2.0 Flash Live</MenuItem>
+                <MenuItem value="gemini-2.5-flash-live-preview">Gemini 2.5 Flash Live Preview</MenuItem>
+                <MenuItem value="gemini-2.5-flash-preview-native-audio-dialog">Gemini 2.5 Flash Native Audio Dialog</MenuItem>
+                <MenuItem value="gemini-2.5-flash-exp-native-audio-thinking-dialog">Gemini 2.5 Flash Native Audio Thinking</MenuItem>
               </Select>
             </FormControl>
 

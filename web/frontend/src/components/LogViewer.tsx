@@ -8,10 +8,7 @@ import {
   ListItem,
   ListItemText,
   Chip,
-  IconButton,
-  Tooltip,
 } from '@mui/material';
-import { Clear as ClearIcon } from '@mui/icons-material';
 import { useCall } from '../contexts/CallContext';
 
 interface TabPanelProps {
@@ -48,7 +45,7 @@ const LogViewer: React.FC = () => {
     }
   }, [logs]);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
@@ -88,7 +85,6 @@ const LogViewer: React.FC = () => {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      fractionalSecondDigits: 3,
     });
   };
 
