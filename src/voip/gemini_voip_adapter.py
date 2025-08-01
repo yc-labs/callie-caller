@@ -8,6 +8,8 @@ import audioop
 import logging
 from typing import Optional
 
+from ai.conversation import ConversationManager
+
 from ai.live_client import AudioBridge  # your existing Gemini Live client
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ class GeminiVoipAdapter:
         initial_message: Optional[str] = None,
         max_session_minutes: int = 14,
         call_context: Optional[str] = None,
+        conversation_manager: Optional[ConversationManager] = None,
     ):
         self.voip = voip_client
         self.target = target_number
@@ -87,7 +90,12 @@ class GeminiVoipAdapter:
         self._fifo_thread: Optional[threading.Thread] = None
         self._loop_ready = threading.Event()  # Signal when event loop is ready
 
-        self._bridge = AudioBridge(phone_number=self.target, call_context=self.call_context, voip_adapter=self)
+        self._bridge = AudioBridge(
+            phone_number=self.target,
+            call_context=self.call_context,
+            voip_adapter=self,
+            conversation_manager=conversation_manager,
+        )
 
     # ---------- Event loop (Gemini) ----------
 
