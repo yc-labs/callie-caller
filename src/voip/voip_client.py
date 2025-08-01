@@ -81,9 +81,11 @@ class MyCall(pj.Call):
         if ci.state == pj.PJSIP_INV_STATE_CONFIRMED:
             self.client._call_connected = True
         if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
+            logger.info("Call disconnected - setting _call_done to True")
             self.client._call_done = True
 
     def _ensure_playlist_worker(self, call_media):
+        self.client._register_current_thread()
         # Store the call_media reference in both call and client for audio playback
         self._call_media = call_media
         self.client._call_media = call_media
@@ -232,6 +234,9 @@ class VoipClient:
         self.wav_path = wav_path
         self.tone_seconds = tone_seconds
         self.tone_freq = tone_freq
+        self.pj_lock = threading.Lock()
+        self._pj_thread = None
+        self._ready_event = threading.Event()
 
         self.ep = None  # Will be created in _init_lib()
         self.acc = None
@@ -254,6 +259,11 @@ class VoipClient:
     def enable_rx_fifo(self, fifo_path: str):
         """Record far-end PCM into this named pipe (WAV header + 16-bit LE mono @ call-rate)."""
         self._rx_fifo_path = fifo_path
+        
+    def _register_current_thread(self):
+        """Register the current thread with pjsua2 if not already registered."""
+        if self.ep and not self.ep.libIsThreadRegistered():
+            self.ep.libRegisterThread(threading.current_thread().name)
 
     def enqueue_pcm(self, pcm_bytes: bytes, src_rate_hz: int):
         """
@@ -319,7 +329,12 @@ class VoipClient:
     # ----- PJSUA2 lifecycle -----
 
     def _init_lib(self):
-        # Create the endpoint only after we're ready to initialize pjlib
+        self._ready_event = threading.Event()
+        self._pj_thread = threading.Thread(target=self._run_pjsua)
+        self._pj_thread.daemon = True
+        self._pj_thread.start()
+
+    def _run_pjsua(self):
         self.ep = pj.Endpoint()
         self.ep.libCreate()
 
@@ -340,20 +355,30 @@ class VoipClient:
 
         self.ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, tcfg)
 
-        # Prefer wideband codecs when available
         try:
-            self.ep.codecSetPriority("opus/48000", 255)   # if Opus is compiled in
-            self.ep.codecSetPriority("G722/8000", 254)    # G.722 advertises 8k in SDP but decodes to 16k PCM
+            self.ep.codecSetPriority("opus/48000", 255)
+            self.ep.codecSetPriority("G722/8000", 254)
             self.ep.codecSetPriority("PCMU/8000", 200)
             self.ep.codecSetPriority("PCMA/8000", 180)
         except pj.Error as e:
             logger.warning(f"Codec priority set error: {e.info()}")
 
-        # null devices; we feed audio via recorder/player
         self.ep.audDevManager().setNullDev()
 
         self.ep.libStart()
         logger.info("PJSUA2 started")
+        
+        # Signal that the library is ready
+        self._ready_event.set()
+        
+        # Now register the account
+        if self._register():
+            logger.info("Registration successful")
+        else:
+            logger.error("Registration failed")
+
+        while self.ep:
+            self.ep.libHandleEvents(20)
 
     def _register(self):
         doms = [self.cfg["primary_domain"]]
@@ -410,172 +435,193 @@ class VoipClient:
     def initialize(self):
         """Initialize the PJSUA2 library and register the account."""
         self._init_lib()
-        if not self._register():
-            raise RuntimeError("Registration failed on all servers")
+        # Wait for the library to be ready and registration to complete
+        if not self._ready_event.wait(timeout=10):
+            raise RuntimeError("PJSUA2 library failed to initialize")
+        
+        # Wait for registration to complete
+        for _ in range(50):  # 5 seconds timeout
+            if self._registered:
+                logger.info("Account registered successfully")
+                return
+            time.sleep(0.1)
+        
+        raise RuntimeError("Registration failed on all servers")
 
     def dial(self, target_number: str, max_duration_sec: int = 3600):
         """Place a call and keep it up while the bridge runs."""
+        # Initialize the call with lock
+        with self.pj_lock:
+            try:
+                self._register_current_thread()
+                acc_uri = self.acc.getInfo().uri
+                domain = acc_uri.split("@", 1)[1].split(";", 1)[0]
+                target_uri = f"sip:{target_number}@{domain}"
+                logger.info(f"Dialing {target_uri}")
+
+                self.active_call = MyCall(self, self.acc)
+                prm = pj.CallOpParam(True)
+                self.active_call.makeCall(target_uri, prm)
+            except pj.Error as e:
+                logger.error(f"Failed to make call: {e.info()}")
+                raise
+
+        # Wait for call to complete without holding the lock
         try:
-
-            acc_uri = self.acc.getInfo().uri
-            domain = acc_uri.split("@", 1)[1].split(";", 1)[0]
-            target_uri = f"sip:{target_number}@{domain}"
-            logger.info(f"Dialing {target_uri}")
-
-            self.active_call = MyCall(self, self.acc)
-            prm = pj.CallOpParam(True)
-            self.active_call.makeCall(target_uri, prm)
-
             started = time.time()
             last_stats_time = time.time()
             while not self._call_done and (time.time() - started) < max_duration_sec:
-                # Process any pending audio playback
-                if self._pending_audio:
-                    logger.debug(f"Pending audio: {self._pending_audio}, call_media: {self._call_media}")
-                    if not self._call_media:
-                        logger.warning("No call media available yet, cannot play audio")
-                    else:
-                        try:
-                            wav_path = self._pending_audio
-                            
-                            # Amplify audio before playing if it's too quiet
-                            with open(wav_path, 'rb') as f:
-                                header = f.read(44)  # Read WAV header
-                                audio_data = f.read()  # Read all audio data
-                                
-                            if audio_data and len(audio_data) > 100:
-                                import struct
-                                samples = list(struct.unpack(f'{len(audio_data)//2}h', audio_data))
-                                max_sample = max(abs(s) for s in samples)
-                                
-                                # Amplify if too quiet
-                                if max_sample < 5000 and max_sample > 0:  # If max is less than ~15% of full scale
-                                    # Calculate amplification factor (aim for peaks around 20000)
-                                    amp_factor = min(20000 / max_sample, 10.0)  # Cap at 10x to avoid clipping
-                                    logger.info(f"PRE-AMPLIFYING audio by {amp_factor:.1f}x (max_sample={max_sample})")
-                                    
-                                    # Amplify samples
-                                    amplified = []
-                                    for s in samples:
-                                        new_s = int(s * amp_factor)
-                                        # Clip to int16 range
-                                        new_s = max(-32768, min(32767, new_s))
-                                        amplified.append(new_s)
-                                    
-                                    # Write amplified audio back
-                                    amplified_data = struct.pack(f'{len(amplified)}h', *amplified)
-                                    with open(wav_path, 'wb') as f:
-                                        f.write(header)
-                                        f.write(amplified_data)
-                            
-                            player = pj.AudioMediaPlayer()
-                            player.createPlayer(wav_path, 1)  # 1=no loop
-                            
-                            # Connect to conference bridge first
-                            player_slot = player.getPortId()
-                            logger.debug(f"Created player with slot {player_slot}")
-                            
-                            # Start transmitting to the call
-                            player.startTransmit(self._call_media)
-                            logger.debug("Started transmitting to call media")
-                            
-                            # Verify the player is connected
+                    # Debug logging every 5 seconds
+                    if time.time() - last_stats_time > 5:
+                        logger.debug(f"Call status: _call_done={self._call_done}, elapsed={(time.time() - started):.1f}s")
+                    
+                    # Process any pending audio playback
+                    if self._pending_audio:
+                        logger.debug(f"Pending audio: {self._pending_audio}, call_media: {self._call_media}")
+                        if not self._call_media:
+                            logger.warning("No call media available yet, cannot play audio")
+                        else:
                             try:
-                                port_info = player.getPortInfo()
-                                logger.debug(f"Player port info: name={port_info.name}, format={port_info.format.clockRate}Hz")
+                                wav_path = self._pending_audio
                                 
-                                # Check if we're actually connected to the call
-                                call_port_info = self._call_media.getPortInfo()
-                                logger.debug(f"Call media port: name={call_port_info.name}, format={call_port_info.format.clockRate}Hz")
-                            except Exception as e:
-                                logger.warning(f"Could not get port info: {e}")
-                            
-                            # Estimate duration
-                            with wave.open(wav_path, "rb") as wf:
-                                frames = wf.getnframes()
-                                rate = wf.getframerate()
-                                duration = frames / float(rate)
-                            
-                            logger.info(f"Playing audio, duration={duration:.2f}s, size={os.path.getsize(wav_path)} bytes")
-                            
-                            # Wait for playback to complete to avoid overlapping audio
-                            if duration > 0:
-                                logger.debug(f"Waiting {duration:.2f}s for playback to complete...")
-                                time.sleep(duration)
-                                logger.debug("Playback should be complete")
-                                
-                            # Stop transmission and destroy player properly
-                            player.stopTransmit(self._call_media)
-                            pj.AudioMedia.typecastFromMedia(None)  # Force cleanup
-                            
-                            # Debug: Check if audio is silent and amplify if needed
-                            with open(wav_path, 'rb') as f:
-                                header = f.read(44)  # Read WAV header
-                                audio_data = f.read()  # Read all audio data
-                                
-                            if audio_data:
-                                # Check if all samples are near zero (silent)
-                                import struct
-                                samples = list(struct.unpack(f'{len(audio_data)//2}h', audio_data))
-                                max_sample = max(abs(s) for s in samples)
-                                avg_sample = sum(abs(s) for s in samples) / len(samples)
-                                logger.info(f"Audio analysis: max_sample={max_sample}, avg_sample={avg_sample:.1f}, samples={len(samples)}")
-                                
-                                # Amplify if too quiet
-                                if max_sample < 5000 and max_sample > 0:  # If max is less than ~15% of full scale
-                                    # Calculate amplification factor (aim for peaks around 20000)
-                                    amp_factor = min(20000 / max_sample, 10.0)  # Cap at 10x to avoid clipping
-                                    logger.info(f"Amplifying audio by {amp_factor:.1f}x")
+                                # Amplify audio before playing if it's too quiet
+                                with open(wav_path, 'rb') as f:
+                                    header = f.read(44)  # Read WAV header
+                                    audio_data = f.read()  # Read all audio data
                                     
-                                    # Amplify samples
-                                    amplified = []
-                                    for s in samples:
-                                        new_s = int(s * amp_factor)
-                                        # Clip to int16 range
-                                        new_s = max(-32768, min(32767, new_s))
-                                        amplified.append(new_s)
+                                if audio_data and len(audio_data) > 100:
+                                    import struct
+                                    samples = list(struct.unpack(f'{len(audio_data)//2}h', audio_data))
+                                    max_sample = max(abs(s) for s in samples)
                                     
-                                    # Write amplified audio back
-                                    amplified_data = struct.pack(f'{len(amplified)}h', *amplified)
-                                    with open(wav_path, 'wb') as f:
-                                        f.write(header)
-                                        f.write(amplified_data)
-                                    
-                                    logger.debug(f"Amplified audio written back to {wav_path}")
-                            
-                            self._pending_audio = None
-                        except Exception as e:
-                            logger.error(f"Audio playback error: {e}")
-                            self._pending_audio = None
-                
-                # Log call statistics every 5 seconds
-                if time.time() - last_stats_time > 5:
-                    try:
-                        ci = self.active_call.getInfo()
-                        if ci.media:
-                            for i, mi in enumerate(ci.media):
-                                if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
-                                    # Get stream statistics
-                                    try:
-                                        si = self.active_call.getStreamStat(i)
-                                        logger.debug(f"RTP TX: packets={si.rtcp.tx.pkt}, bytes={si.rtcp.tx.bytes}, loss={si.rtcp.tx.loss}")
-                                        logger.debug(f"RTP RX: packets={si.rtcp.rx.pkt}, bytes={si.rtcp.rx.bytes}, loss={si.rtcp.rx.loss}")
+                                    # Always amplify to ensure clear audio
+                                    if max_sample < 20000 and max_sample > 0:  # If not already loud
+                                        # Calculate amplification factor (aim for peaks around 25000)
+                                        amp_factor = min(25000 / max_sample, 5.0)  # Cap at 5x to avoid distortion
+                                        logger.info(f"PRE-AMPLIFYING audio by {amp_factor:.1f}x (max_sample={max_sample})")
                                         
-                                        # Get detailed stream info
+                                        # Amplify samples
+                                        amplified = []
+                                        for s in samples:
+                                            new_s = int(s * amp_factor)
+                                            # Clip to int16 range
+                                            new_s = max(-32768, min(32767, new_s))
+                                            amplified.append(new_s)
+                                        
+                                        # Write amplified audio back
+                                        amplified_data = struct.pack(f'{len(amplified)}h', *amplified)
+                                        with open(wav_path, 'wb') as f:
+                                            f.write(header)
+                                            f.write(amplified_data)
+                                
+                                player = pj.AudioMediaPlayer()
+                                player.createPlayer(wav_path, 1)  # 1=no loop
+                                
+                                # Connect to conference bridge first
+                                player_slot = player.getPortId()
+                                logger.debug(f"Created player with slot {player_slot}")
+                                
+                                # Start transmitting to the call
+                                player.startTransmit(self._call_media)
+                                logger.debug("Started transmitting to call media")
+                                
+                                # Verify the player is connected
+                                try:
+                                    port_info = player.getPortInfo()
+                                    logger.debug(f"Player port info: name={port_info.name}, format={port_info.format.clockRate}Hz")
+                                    
+                                    # Check if we're actually connected to the call
+                                    call_port_info = self._call_media.getPortInfo()
+                                    logger.debug(f"Call media port: name={call_port_info.name}, format={call_port_info.format.clockRate}Hz")
+                                except Exception as e:
+                                    logger.warning(f"Could not get port info: {e}")
+                                
+                                # Estimate duration
+                                with wave.open(wav_path, "rb") as wf:
+                                    frames = wf.getnframes()
+                                    rate = wf.getframerate()
+                                    duration = frames / float(rate)
+                                
+                                logger.info(f"Playing audio, duration={duration:.2f}s, size={os.path.getsize(wav_path)} bytes")
+                                
+                                # Wait for playback to complete to avoid overlapping audio
+                                if duration > 0:
+                                    logger.debug(f"Waiting {duration:.2f}s for playback to complete...")
+                                    time.sleep(duration)
+                                    logger.debug("Playback should be complete")
+                                    
+                                # Stop transmission and destroy player properly
+                                player.stopTransmit(self._call_media)
+                                pj.AudioMedia.typecastFromMedia(None)  # Force cleanup
+                                
+                                # Debug: Check if audio is silent and amplify if needed
+                                with open(wav_path, 'rb') as f:
+                                    header = f.read(44)  # Read WAV header
+                                    audio_data = f.read()  # Read all audio data
+                                    
+                                if audio_data:
+                                    # Check if all samples are near zero (silent)
+                                    import struct
+                                    samples = list(struct.unpack(f'{len(audio_data)//2}h', audio_data))
+                                    max_sample = max(abs(s) for s in samples)
+                                    avg_sample = sum(abs(s) for s in samples) / len(samples)
+                                    logger.info(f"Audio analysis: max_sample={max_sample}, avg_sample={avg_sample:.1f}, samples={len(samples)}")
+                                    
+                                    # Amplify if too quiet
+                                    if max_sample < 5000 and max_sample > 0:  # If max is less than ~15% of full scale
+                                        # Calculate amplification factor (aim for peaks around 20000)
+                                        amp_factor = min(20000 / max_sample, 10.0)  # Cap at 10x to avoid clipping
+                                        logger.info(f"Amplifying audio by {amp_factor:.1f}x")
+                                        
+                                        # Amplify samples
+                                        amplified = []
+                                        for s in samples:
+                                            new_s = int(s * amp_factor)
+                                            # Clip to int16 range
+                                            new_s = max(-32768, min(32767, new_s))
+                                            amplified.append(new_s)
+                                        
+                                        # Write amplified audio back
+                                        amplified_data = struct.pack(f'{len(amplified)}h', *amplified)
+                                        with open(wav_path, 'wb') as f:
+                                            f.write(header)
+                                            f.write(amplified_data)
+                                        
+                                        logger.debug(f"Amplified audio written back to {wav_path}")
+                                
+                                self._pending_audio = None
+                            except Exception as e:
+                                logger.error(f"Audio playback error: {e}")
+                                self._pending_audio = None
+                    
+                    # Log call statistics every 5 seconds
+                    if time.time() - last_stats_time > 5:
+                        try:
+                            ci = self.active_call.getInfo()
+                            if ci.media:
+                                for i, mi in enumerate(ci.media):
+                                    if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
+                                        # Get stream statistics
                                         try:
-                                            tx_stats = self.active_call.getStreamStat(i).rtcp.tx
-                                            rx_stats = self.active_call.getStreamStat(i).rtcp.rx
-                                            logger.debug(f"TX rate: {tx_stats.bytes * 8 / 5000:.1f} kbps")
-                                            logger.debug(f"RX rate: {rx_stats.bytes * 8 / 5000:.1f} kbps")
+                                            si = self.active_call.getStreamStat(i)
+                                            logger.debug(f"RTP TX: packets={si.rtcp.tx.pkt}, bytes={si.rtcp.tx.bytes}, loss={si.rtcp.tx.loss}")
+                                            logger.debug(f"RTP RX: packets={si.rtcp.rx.pkt}, bytes={si.rtcp.rx.bytes}, loss={si.rtcp.rx.loss}")
+                                            
+                                            # Get detailed stream info
+                                            try:
+                                                tx_stats = self.active_call.getStreamStat(i).rtcp.tx
+                                                rx_stats = self.active_call.getStreamStat(i).rtcp.rx
+                                                logger.debug(f"TX rate: {tx_stats.bytes * 8 / 5000:.1f} kbps")
+                                                logger.debug(f"RX rate: {rx_stats.bytes * 8 / 5000:.1f} kbps")
+                                            except Exception:
+                                                pass
                                         except Exception:
                                             pass
-                                    except Exception:
-                                        pass
-                        last_stats_time = time.time()
-                    except Exception:
-                        pass
-                
-                time.sleep(0.05)
+                            last_stats_time = time.time()
+                        except Exception:
+                            pass
+                    
+                    time.sleep(0.05)
 
             try:
                 ci = self.active_call.getInfo()
@@ -594,22 +640,23 @@ class VoipClient:
             self._cleanup()
 
     def _cleanup(self):
-        try:
-            if self.active_call:
-                self.active_call.safe_stop()
-                self.active_call = None
-        except Exception:
-            pass
-        try:
-            if self.acc:
-                self.acc = None
-        except Exception:
-            pass
+        with self.pj_lock:
+            try:
+                if self.active_call:
+                    self.active_call.safe_stop()
+                    self.active_call = None
+            except Exception:
+                pass
+            try:
+                if self.acc:
+                    self.acc = None
+            except Exception:
+                pass
 
-        try:
-            if self.ep and self.ep.libGetState() < pj.PJSUA_STATE_CLOSING:
-                logger.info("Shutting down...")
-                self.ep.libDestroy()
-        finally:
-            self.ep = None
-            logger.info("Stopped")
+            try:
+                if self.ep and self.ep.libGetState() < pj.PJSUA_STATE_CLOSING:
+                    logger.info("Shutting down...")
+                    self.ep.libDestroy()
+            finally:
+                self.ep = None
+                logger.info("Stopped")

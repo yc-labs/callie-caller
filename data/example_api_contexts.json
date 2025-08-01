@@ -1,0 +1,23 @@
+{
+  "jmarcus_integration_checkin": {
+    "context": "You are calling to get a status update on the JMarcus integration project. This is a routine touchbase call to check on progress, identify any blockers, and understand next steps. Be friendly but professional. Ask specific questions about: 1) Current progress percentage, 2) What phase they're in (planning, development, testing, deployment), 3) Any blockers or issues, 4) Expected timeline for completion, 5) What help or resources they need. After gathering the information, use the save_status_update tool to record the status.",
+    "example_usage": {
+      "target_number": "+14044626406",
+      "call_context": "You are calling to get a status update on the JMarcus integration project. This is a routine touchbase call to check on progress, identify any blockers, and understand next steps. Be friendly but professional. Ask specific questions about: 1) Current progress percentage, 2) What phase they're in (planning, development, testing, deployment), 3) Any blockers or issues, 4) Expected timeline for completion, 5) What help or resources they need. After gathering the information, use the save_status_update tool to record the status."
+    }
+  },
+  "general_project_checkin": {
+    "context": "You are calling to get a general project status update. Ask about overall progress, current tasks, any challenges, and next steps. Be conversational and supportive. Remember to save the status using the appropriate tools.",
+    "example_usage": {
+      "target_number": "+14044626406",
+      "call_context": "You are calling to get a general project status update. Ask about overall progress, current tasks, any challenges, and next steps. Be conversational and supportive. Remember to save the status using the appropriate tools."
+    }
+  },
+  "quick_sync": {
+    "context": "This is a quick sync call to touch base. Keep it brief and friendly. Ask how things are going, if there's anything urgent to discuss, and if they need any help. This should be a 2-3 minute call maximum.",
+    "example_usage": {
+      "target_number": "+14044626406", 
+      "call_context": "This is a quick sync call to touch base. Keep it brief and friendly. Ask how things are going, if there's anything urgent to discuss, and if they need any help. This should be a 2-3 minute call maximum."
+    }
+  }
+}

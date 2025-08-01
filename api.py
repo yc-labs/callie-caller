@@ -17,6 +17,24 @@ def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "API is running"}
 
+@app.get("/status/{project_name}")
+def get_project_status(project_name: str):
+    """Get the latest status for a project"""
+    from ai.tools import StatusManager
+    status_manager = StatusManager()
+    status = status_manager.get_latest_status(project_name)
+    if status:
+        return status
+    else:
+        return {"error": f"No status found for project: {project_name}"}
+
+@app.get("/status")
+def get_all_statuses():
+    """Get all status updates"""
+    from ai.tools import StatusManager
+    status_manager = StatusManager()
+    return {"statuses": status_manager.get_all_statuses()}
+
 class CallRequest(BaseModel):
     target_number: str
     initial_message: Optional[str] = None

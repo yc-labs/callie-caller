@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+import traceback
 try:
     import pyaudio  # optional (avoid device init in containers)
 except Exception:
@@ -29,6 +30,8 @@ CHANNELS = 1
 SEND_SAMPLE_RATE = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 1024
+SILENCE_HANGUP_SECONDS = 30  # Increased to 30 seconds for more natural conversation
+INITIAL_WAIT_SECONDS = 12  # Wait up to 12 seconds for user to speak first
 
 class AudioBridge:
     """Bridges SIP audio with Gemini Live API for real-time conversation with function calling."""
@@ -80,6 +83,7 @@ class AudioBridge:
         self.silence_start_time = 0
         self.has_heard_speech = False
         self.ai_has_greeted = False
+        self.last_speech_time = None
         
         logger.info("AudioBridge initialized with function calling support")
     
@@ -106,16 +110,20 @@ class AudioBridge:
         """Get system instruction for the AI with tool information."""
         base_instruction = """You are Callie, a helpful AI voice assistant. You are having a live voice conversation with a user over the phone.
 
-Key instructions for natural conversation:
-- Wait for the person to speak first when they answer (they'll usually say "Hello?")
-- Respond naturally to their greeting with something like "Hi, this is Callie, your AI assistant. Is this a good time to talk?"
-- If there's a long silence after the call connects, you can speak first with "Hello? This is Callie calling. Can you hear me?"
-- NEVER interrupt when someone is speaking - wait for them to finish
-- Keep responses conversational and natural
-- Be concise but friendly
-- Speak at a natural pace
-- Use tools when appropriate and acknowledge when doing so
-- If a tool fails, explain briefly and offer alternatives
+IMPORTANT CONVERSATION FLOW RULES:
+1. ALWAYS wait for the person to speak first when they answer the phone
+2. The person will typically say "Hello?" or similar when they answer
+3. Only AFTER they speak, respond with a natural greeting
+4. If you hear complete silence for more than 12 seconds, you may say "Hello? This is Callie. Can you hear me?"
+5. NEVER speak until you hear the human speak first (except for the 12-second silence rule)
+
+CONVERSATION GUIDELINES:
+- Pause briefly after the person finishes speaking before responding (about 0.5-1 second)
+- Keep responses concise and conversational
+- If the person is still speaking, wait for them to finish completely
+- Speak at a natural, measured pace
+- Use acknowledgments like "mm-hmm", "I see", "got it" to show you're listening
+- Use tools when appropriate and briefly acknowledge when doing so
 
 """
         
@@ -210,11 +218,12 @@ Key instructions for natural conversation:
                 self.audio_out_queue = asyncio.Queue(maxsize=20)  # Increased buffer size
                 self.sip_audio_queue = asyncio.Queue()
                 
-                # Don't send any message - let the natural flow happen
-                logger.info("📤 AI ready for natural conversation flow")
+                # Don't send any initial message - wait for user to speak first
+                logger.info("📤 AI ready - waiting for user to speak first")
                 
                 # Initialize silence detection
                 self.silence_start_time = time.time()
+                self.last_speech_time = time.time()
                 self.has_heard_speech = False
                 self.ai_has_greeted = False
                 
@@ -317,10 +326,14 @@ Key instructions for natural conversation:
         logger.info("📤 Audio-to-AI task started")
         
         # Voice activity detection settings
-        silence_threshold = 500  # Amplitude threshold for silence
+        silence_threshold = 400  # Lowered threshold to detect speech more easily
         speech_duration = 0
         silence_duration = 0
         last_was_speech = False
+        consecutive_silence_chunks = 0
+        
+        # Track when user stops speaking to add natural pause
+        user_stopped_speaking_time = None
         
         while self.running:
             try:
@@ -342,22 +355,33 @@ Key instructions for natural conversation:
                             is_speech = max_amplitude > silence_threshold
                             
                             if is_speech:
-                                if not last_was_speech:
+                                if not self.has_heard_speech:
                                     logger.info(f"🗣️  USER SPEAKING - Audio level: max={max_amplitude}, avg={avg_amplitude:.0f}")
                                     self.has_heard_speech = True
+                                self.last_speech_time = time.time()
                                 speech_duration += 0.02  # Assuming 20ms chunks
                                 silence_duration = 0
                             else:
                                 if last_was_speech:
                                     logger.info(f"🔇 User stopped speaking (spoke for {speech_duration:.1f}s)")
+                                    user_stopped_speaking_time = time.time()
+                                
+                                # Check for hangup timeout
+                                if self.last_speech_time and (time.time() - self.last_speech_time) > SILENCE_HANGUP_SECONDS:
+                                    logger.warning(f"Hangup timer triggered after {time.time() - self.last_speech_time:.1f}s of silence. Hanging up.")
+                                    if self.voip_adapter:
+                                        self.voip_adapter.hangup_call()
+                                    await self.stop_conversation()
+                                    break
+
                                 silence_duration += 0.02
                                 speech_duration = 0
                             
-                            # Check for 5 second silence timeout
+                            # Check for initial wait timeout
                             if not self.has_heard_speech and not self.ai_has_greeted:
                                 time_since_start = time.time() - self.silence_start_time
-                                if time_since_start > 5.0:
-                                    logger.info("⏰ 5 second silence timeout - AI should greet now")
+                                if time_since_start > INITIAL_WAIT_SECONDS:
+                                    logger.info(f"⏰ {INITIAL_WAIT_SECONDS} second silence timeout - AI may greet now")
                                     self.ai_has_greeted = True
                             
                             last_was_speech = is_speech
@@ -395,6 +419,7 @@ Key instructions for natural conversation:
                         break
                         
                     if data := response.data:
+                        self.last_speech_time = time.time()
                         audio_received_count += 1
                         consecutive_errors = 0  # Reset error count on success
                         
@@ -562,15 +587,16 @@ Key instructions for natural conversation:
         audio_buffer = b''  # Buffer to accumulate chunks
         chunk_count = 0     # Track chunks in current buffer
         
-        # ADAPTIVE BUFFERING: Balanced for low latency and smoothness
-        # Reduced buffer sizes for faster response
-        startup_buffer_size = 24000   # ~500ms at 24kHz - faster startup
-        steady_buffer_size = 12000    # ~250ms at 24kHz - low latency steady state
-        startup_chunks_needed = 1     # Switch to steady state after first buffer
+        # CONTINUOUS PLAYBACK: Minimize gaps between chunks
+        # Smaller buffers for lower latency, but play continuously
+        startup_buffer_size = 24000   # ~1s at 24kHz
+        steady_buffer_size = 12000    # ~0.5s at 24kHz - lower latency
+        startup_chunks_needed = 1     # Switch to steady state quickly
+        max_buffer_size = 96000       # ~4s max buffer to prevent overflow
         
         buffer_target_size = startup_buffer_size
         buffers_sent = 0  # Track buffers sent, not individual chunks
-        logger.info(f"🚀 STARTUP MODE: Using {startup_buffer_size} byte buffer (~500ms) for smooth start")
+        logger.info(f"🚀 STARTUP MODE: Using {startup_buffer_size} byte buffer (~1s) for quick start")
         
         while self.running:
             try:
@@ -582,8 +608,15 @@ Key instructions for natural conversation:
                 audio_buffer += audio_data
                 logger.debug(f"🎵 Buffered AI audio chunk: {len(audio_data)} bytes (buffer: {len(audio_buffer)} bytes)")
                 
-                # Process buffer when we have enough data for smooth audio
-                if len(audio_buffer) >= buffer_target_size or not self.running:
+                # Process buffer when we have enough data OR if we haven't sent audio in a while
+                time_since_last_play = time.time() - getattr(self, '_last_audio_play_time', 0)
+                should_play = (
+                    len(audio_buffer) >= buffer_target_size or 
+                    (len(audio_buffer) > 0 and time_since_last_play > 0.2) or  # Play if we have any audio and it's been 200ms
+                    not self.running
+                )
+                
+                if should_play and len(audio_buffer) > 0:
                     logger.info(f"🎵 Processing buffered AI audio: {len(audio_buffer)} bytes from {chunk_count} chunks")
                     buffers_sent += 1
                     chunk_count = 0  # Reset chunk count
@@ -608,6 +641,7 @@ Key instructions for natural conversation:
                         logger.info(f"📞 Sending buffered AI audio to SIP call...")
                         await asyncio.to_thread(self.sip_audio_callback, audio_buffer)
                         logger.info(f"✅ Buffered AI audio sent to SIP successfully")
+                        self._last_audio_play_time = time.time()
                     else:
                         logger.warning("⚠️  No SIP audio callback set - audio not sent to call")
                         

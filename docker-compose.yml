@@ -15,7 +15,6 @@ services:
       - config.env
     
     environment:
-    - PYTHONPATH=/usr/src/app/src
     - LOG_LEVEL=INFO
     - GEMINI_MODEL=models/gemini-2.0-flash-exp
     - TARGET_NUMBER=+16782960086

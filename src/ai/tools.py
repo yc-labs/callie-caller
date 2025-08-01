@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 CONTACTS_FILE = "data/contacts.json"
 NOTES_FILE = "data/notes.json"
 PROJECTS_FILE = "data/projects.json"
+STATUS_FILE = "data/status_updates.json"
 
 class EmailManager:
     """Manages sending emails."""
@@ -154,6 +155,44 @@ class NotesManager:
         notes.append(note_data)
         self.data_manager.save_entry(phone_number, notes)
         return note_data
+
+class StatusManager:
+    """Manages status updates for projects/integrations."""
+    def __init__(self):
+        self.data_manager = DataManager(STATUS_FILE)
+    
+    def save_status(self, project_name: str, status: Dict[str, Any], phone_number: Optional[str] = None) -> Dict[str, Any]:
+        """Save a status update for a project."""
+        statuses = self.data_manager.get_entries(phone_number)
+        
+        # Create status entry with timestamp
+        status_entry = {
+            "id": len(statuses) + 1,
+            "project": project_name,
+            "timestamp": datetime.now().isoformat(),
+            "status": status,
+            "reported_by": phone_number
+        }
+        
+        statuses.append(status_entry)
+        self.data_manager.save_entry(phone_number or "general", statuses)
+        return status_entry
+    
+    def get_latest_status(self, project_name: str, phone_number: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get the latest status for a project."""
+        statuses = self.data_manager.get_entries(phone_number)
+        
+        # Find the most recent status for this project
+        project_statuses = [s for s in statuses if s.get("project", "").lower() == project_name.lower()]
+        if project_statuses:
+            # Sort by timestamp descending
+            project_statuses.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            return project_statuses[0]
+        return None
+    
+    def get_all_statuses(self, phone_number: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all status updates."""
+        return self.data_manager.get_entries(phone_number)
 
 @dataclass
 class ToolResult:
@@ -741,6 +780,120 @@ class ListProjectsTool(BaseTool):
             logger.error(f"ListProjectsTool error: {e}")
             return ToolResult(success=False, error=str(e))
 
+class SaveStatusTool(BaseTool):
+    """Saves a status update for a project or integration."""
+    def __init__(self):
+        self.status_manager = StatusManager()
+    
+    @property
+    def name(self) -> str:
+        return "save_status_update"
+    
+    @property
+    def description(self) -> str:
+        return "Save a status update for a project or integration"
+    
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Name of the project or integration"
+                },
+                "status": {
+                    "type": "object",
+                    "description": "Status information as a JSON object",
+                    "properties": {
+                        "overall_status": {
+                            "type": "string",
+                            "description": "Overall status (e.g., 'on track', 'delayed', 'completed', 'blocked')"
+                        },
+                        "progress_percentage": {
+                            "type": "number",
+                            "description": "Progress percentage (0-100)"
+                        },
+                        "current_phase": {
+                            "type": "string",
+                            "description": "Current phase or milestone"
+                        },
+                        "blockers": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of current blockers or issues"
+                        },
+                        "next_steps": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of next steps or action items"
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Additional notes or details"
+                        }
+                    }
+                }
+            },
+            "required": ["project_name", "status"]
+        }
+    
+    async def execute(self, project_name: str, status: Dict[str, Any], phone_number: Optional[str] = None, **kwargs) -> ToolResult:
+        try:
+            result = self.status_manager.save_status(project_name, status, phone_number)
+            return ToolResult(
+                success=True,
+                data=result,
+                metadata={"action": "status_saved", "project": project_name}
+            )
+        except Exception as e:
+            logger.error(f"SaveStatusTool error: {e}")
+            return ToolResult(success=False, error=str(e))
+
+class GetStatusTool(BaseTool):
+    """Gets the latest status for a project or integration."""
+    def __init__(self):
+        self.status_manager = StatusManager()
+    
+    @property
+    def name(self) -> str:
+        return "get_status_update"
+    
+    @property
+    def description(self) -> str:
+        return "Get the latest status update for a project or integration"
+    
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Name of the project or integration"
+                }
+            },
+            "required": ["project_name"]
+        }
+    
+    async def execute(self, project_name: str, phone_number: Optional[str] = None, **kwargs) -> ToolResult:
+        try:
+            status = self.status_manager.get_latest_status(project_name, phone_number)
+            if status:
+                return ToolResult(
+                    success=True,
+                    data=status,
+                    metadata={"action": "status_retrieved", "project": project_name}
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    error=f"No status found for project: {project_name}"
+                )
+        except Exception as e:
+            logger.error(f"GetStatusTool error: {e}")
+            return ToolResult(success=False, error=str(e))
+
 class ConversationSummaryTool(BaseTool):
     """Summarizes the current conversation."""
     def __init__(self):
@@ -887,6 +1040,8 @@ class ToolManager:
             GetProjectStatusTool(),
             UpdateProjectStatusTool(),
             ListProjectsTool(),
+            SaveStatusTool(),
+            GetStatusTool(),
             ConversationSummaryTool(),
             # ActionItemExtractionTool(),  # Commented out - not implemented yet
             EmailTool(),
