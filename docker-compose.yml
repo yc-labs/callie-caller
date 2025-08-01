@@ -1,39 +1,44 @@
-version: '3.8'
-
-# Docker Compose for Local Development
-# This file is designed for easy local testing and development.
-# It uses host networking for simplified SIP/RTP communication
-# and mounts the local code directory for live updates.
-
 services:
-  callie-caller:
+  callie-caller-v2:
     build:
       context: .
-      dockerfile: Dockerfile.prod
-    image: callie-caller-dev:latest
-    container_name: callie-caller
-    restart: unless-stopped
+      dockerfile: Dockerfile
+    image: callie-caller:latest
+    container_name: callie-caller-v2
+    restart: "no"
     
     # Use host networking to avoid complex port mapping for SIP/RTP.
     # This makes the container share the host's network stack.
-    network_mode: "host"
+    network_mode: host
     
-    # Load environment variables from a local .env file.
-    # Create a .env file from config.env.template and fill in your secrets.
     env_file:
-      - .env
+      - config.env
+    
+    environment:
+    - PYTHONPATH=/usr/src/app/src
+    - LOG_LEVEL=INFO
+    - GEMINI_MODEL=models/gemini-2.0-flash-exp
+    - TARGET_NUMBER=+16782960086
+    - GEM_OUT_RATE=24000
+    - GEM_IN_RATE=16000
+    - GEM_SESSION_MINUTES=14
+    - GEM_INITIAL_MSG="Hello, this is Callie. How can I help you today?"
+    - RX_FIFO=/tmp/sip_rx.wavpipe
+    - PJSUA_SND_AUTO_CLOSE=1
+    - PJMEDIA_DEV_LOG_LEVEL=1
+    - ALSA_CARD=default
       
     # Mount the local directory into the container for live code reloading.
     # This allows you to change the Python code and see changes without
     # rebuilding the Docker image.
     volumes:
-      - .:/app
+      - .:/usr/src/app
+      - ./data:/usr/src/app/data
+    
+    # Override the default command to run the API
+    command: ["python3", "-u", "./api.py"]
       
-    # Add any additional environment variables needed for development here.
-    environment:
-      - LOG_LEVEL=DEBUG
-      - USE_WEB_UI=true
       
 volumes:
   callie_logs:
-  callie_audio: 
+  callie_audio:

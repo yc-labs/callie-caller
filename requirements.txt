@@ -1,46 +1,6 @@
-# Production dependencies for Callie Caller
-
-# Web framework
-Flask==3.0.0
-flask-cors>=4.0.0
-flask-socketio>=5.3.0
-python-socketio>=5.10.0
-eventlet>=0.33.0
-
-# Google AI and Cloud services
-google-genai==1.26.0
-google-generativeai>=0.8.0
-google-cloud-speech>=2.26.0
-google-cloud-texttospeech>=2.16.3
-firebase-admin>=6.5.0
-
-# Audio processing
-PyAudio==0.2.14
-numpy==1.26.2
-pydub==0.25.1
-scipy==1.13.1
-
-# Speech recognition
-google-cloud-speech>=2.26.0
-SpeechRecognition>=3.10.0
-
-# SIP/VoIP (optional)
-
-# SIP and telephony - PJSUA2 for robust SIP handling
-# pjsua2>=2.12  # Optional - install separately if needed
-
-# Data validation and configuration
-pydantic>=2.5.0
-python-dotenv>=1.0.0
-
-# HTTP client
-requests>=2.31.0
-
-# Logging and CLI
-structlog==23.2.0
-click==8.1.7
-
-# Development dependencies (optional)
-# pytest==7.4.0
-# black==23.3.0
-# mypy==1.3.0 
+google-genai==1.28.0
+pyaudio
+websockets
+uvicorn
+fastapi
+pydantic
