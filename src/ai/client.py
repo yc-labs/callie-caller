@@ -20,15 +20,21 @@ class GeminiClient:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
             
-        self.model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-001")
-        self.client = genai.Client(api_key=self.api_key)
+        self.model = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash-preview-native-audio-dialog")
+        self.client = genai.Client(
+            http_options={"api_version": "v1beta"},
+            api_key=self.api_key
+        )
         self._test_connection()
         
     def _test_connection(self) -> None:
         """Test connection to Gemini API."""
         try:
+            # Use a standard text model for connection testing
+            # Audio models only work with Live API, not generate_content
+            test_model = "models/gemini-2.0-flash-exp"
             response = self.client.models.generate_content(
-                model=self.model,
+                model=test_model,
                 contents="Hello, this is a connection test. Please respond with 'OK'."
             )
             logger.info("Gemini AI connection tested successfully")
@@ -203,7 +209,7 @@ async def test_gemini_connection() -> bool:
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
-        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-001")
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-preview-native-audio-dialog")
         client = genai.Client(api_key=api_key)
         
         response = client.models.generate_content(

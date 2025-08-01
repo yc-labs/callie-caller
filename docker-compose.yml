@@ -16,7 +16,7 @@ services:
     
     environment:
     - LOG_LEVEL=INFO
-    - GEMINI_MODEL=models/gemini-2.0-flash-exp
+    - GEMINI_MODEL=models/gemini-2.5-flash-preview-native-audio-dialog
     - TARGET_NUMBER=+16782960086
     - GEM_OUT_RATE=24000
     - GEM_IN_RATE=16000
