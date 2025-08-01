@@ -5,6 +5,8 @@ Handles conversation state, history, and intelligent response generation.
 
 import time
 import logging
+import json
+import os
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -64,12 +66,46 @@ class Conversation:
 
 class ConversationManager:
     """Manages AI conversations and chat state."""
-    
+
+    HISTORY_FILE = os.getenv("CONVERSATION_HISTORY_FILE", "data/conversations.json")
+
     def __init__(self):
         """Initialize conversation manager."""
         self.ai_client = GeminiClient()
         self.active_conversations: Dict[str, Conversation] = {}
         self.conversation_history: List[Conversation] = []
+
+        # Ensure history file exists
+        if not os.path.exists(self.HISTORY_FILE):
+            with open(self.HISTORY_FILE, "w") as f:
+                json.dump([], f)
+
+    def _load_history(self) -> List[Dict[str, Any]]:
+        with open(self.HISTORY_FILE, "r") as f:
+            return json.load(f)
+
+    def _save_history(self, history: List[Dict[str, Any]]):
+        with open(self.HISTORY_FILE, "w") as f:
+            json.dump(history, f, indent=4)
+
+    def _serialize_conversation(self, conversation: Conversation) -> Dict[str, Any]:
+        return {
+            "conversation_id": conversation.conversation_id,
+            "phone_number": conversation.phone_number,
+            "start_time": conversation.start_time,
+            "end_time": conversation.end_time,
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "timestamp": m.timestamp,
+                    "sentiment": m.sentiment,
+                    "metadata": m.metadata,
+                }
+                for m in conversation.messages
+            ],
+            "summary": conversation.summary,
+        }
         
     def start_conversation(self, conversation_id: str, phone_number: Optional[str] = None) -> Conversation:
         """
@@ -120,10 +156,18 @@ class ConversationManager:
             except Exception as e:
                 logger.error(f"Failed to generate conversation summary: {e}")
                 conversation.summary = f"Conversation with {conversation.message_count} messages"
-        
+
         # Move to history
         self.conversation_history.append(conversation)
         del self.active_conversations[conversation_id]
+
+        # Persist to history file
+        try:
+            history = self._load_history()
+            history.append(self._serialize_conversation(conversation))
+            self._save_history(history)
+        except Exception as e:
+            logger.error(f"Failed to save conversation history: {e}")
         
         logger.info(f"Ended conversation {conversation_id} after {conversation.duration:.1f}s with {conversation.message_count} messages")
         return conversation
@@ -320,3 +364,5 @@ class ConversationManager:
             
         logger.info(f"Cleaned up {len(old_conversations)} old conversations")
         return len(old_conversations)
+
+
