@@ -36,13 +36,7 @@ INITIAL_WAIT_SECONDS = 12  # Wait up to 12 seconds for user to speak first
 class AudioBridge:
     """Bridges SIP audio with Gemini Live API for real-time conversation with function calling."""
 
-    def __init__(
-        self,
-        phone_number: Optional[str] = None,
-        call_context: Optional[str] = None,
-        voip_adapter=None,
-        conversation_manager: Optional[ConversationManager] = None,
-    ):
+    def __init__(self, phone_number: Optional[str] = None, call_context: Optional[str] = None, voip_adapter=None):
         """Initialize audio bridge."""
         self.phone_number = phone_number
         self.call_context = call_context
@@ -56,8 +50,8 @@ class AudioBridge:
             api_key=self.api_key,
         )
         
-        # Conversation manager - allow external instance for shared state
-        self.conversation_manager = conversation_manager or ConversationManager()
+        # Conversation manager
+        self.conversation_manager = ConversationManager()
         self.conversation_id: Optional[str] = None
         
         # Audio queues
@@ -337,10 +331,9 @@ CONVERSATION GUIDELINES:
         silence_duration = 0
         last_was_speech = False
         consecutive_silence_chunks = 0
-
+        
         # Track when user stops speaking to add natural pause
         user_stopped_speaking_time = None
-        end_of_turn_sent = False
         
         while self.running:
             try:
@@ -397,18 +390,6 @@ CONVERSATION GUIDELINES:
                     
                     # Send audio to AI
                     await self.session.send(input=audio_msg)
-
-                    # If we've detected the user stopped speaking for >0.6s,
-                    # explicitly end the turn so the AI can respond naturally
-                    if (
-                        user_stopped_speaking_time
-                        and not end_of_turn_sent
-                        and (time.time() - user_stopped_speaking_time) > 0.6
-                    ):
-                        await self.session.send(end_of_turn=True)
-                        end_of_turn_sent = True
-                    elif is_speech:
-                        end_of_turn_sent = False
                 else:
                     logger.warning("⚠️  No session available for sending audio")
             except Exception as e:

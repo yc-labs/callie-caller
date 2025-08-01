@@ -60,7 +60,6 @@ def make_call_sync(request: CallRequest):
         target_number=request.target_number,
         initial_message=request.initial_message,
         call_context=request.call_context,
-        conversation_manager=conversation_manager,
     )
     
     # Get the conversation ID before starting
@@ -110,7 +109,6 @@ async def make_call_async(request: CallRequest, background_tasks: BackgroundTask
         target_number=request.target_number,
         initial_message=request.initial_message,
         call_context=request.call_context,
-        conversation_manager=conversation_manager,
     )
     
     background_tasks.add_task(run_call, adapter)
