@@ -8,8 +8,8 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from callie_caller.ai.conversation import ConversationManager
-from callie_caller.ai.client import GeminiClient
+from ai.conversation import ConversationManager
+from ai.client import GeminiClient
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import requests

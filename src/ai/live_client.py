@@ -18,8 +18,8 @@ import websockets.exceptions
 import traceback
 import uuid
 
-from callie_caller.ai.tools import get_tool_manager
-from callie_caller.ai.conversation import ConversationManager
+from ai.tools import get_tool_manager
+from ai.conversation import ConversationManager
 
 logger = logging.getLogger(__name__)
 

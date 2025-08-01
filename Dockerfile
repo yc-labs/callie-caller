@@ -54,7 +54,7 @@ COPY requirements.txt .
 RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Copy your application code into the container
-COPY callie_caller/ ./callie_caller/
+COPY src/ ./src/
 COPY main.py .
 COPY api.py .
 
