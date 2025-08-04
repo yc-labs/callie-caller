@@ -12,7 +12,7 @@ services:
     network_mode: host
     
     env_file:
-      - config.env
+      - .env
     
     environment:
     - LOG_LEVEL=INFO
@@ -26,6 +26,11 @@ services:
     - PJSUA_SND_AUTO_CLOSE=1
     - PJMEDIA_DEV_LOG_LEVEL=1
     - ALSA_CARD=default
+    - GOOGLE_CLOUD_PROJECT=yc-partners
+    - SIP_PORT=5060
+    - FLASK_PORT=8080
+
+
       
     # Mount the local directory into the container for live code reloading.
     # This allows you to change the Python code and see changes without
