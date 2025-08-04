@@ -447,10 +447,21 @@ class VoipClient:
 
     def hangup_call(self):
         """Hang up the active call."""
-        if self.active_call:
+        # Ensure this thread is registered with pjlib before calling into pjsua2
+        self._register_current_thread()
+
+        # Avoid races with cleanup or calls after libDestroy
+        if not self.ep or self.ep.libGetState() >= pj.PJSUA_STATE_CLOSING:
+            logger.debug("hangup_call: PJSUA not running, ignoring hangup request")
+            return
+
+        with self.pj_lock:
+            call = self.active_call
+            if not call:
+                return
             try:
                 logger.info("Hanging up call via tool")
-                self.active_call.hangup(pj.CallOpParam(True))
+                call.hangup(pj.CallOpParam(True))
             except pj.Error as e:
                 logger.error(f"Failed to hang up call: {e.info()}")
 
