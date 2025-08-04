@@ -340,6 +340,9 @@ class VoipClient:
     def _run_pjsua(self):
         self.ep = pj.Endpoint()
         self.ep.libCreate()
+        # Ensure this worker thread is registered with pjlib before any other calls
+        if not self.ep.libIsThreadRegistered():
+            self.ep.libRegisterThread("pjsua-worker")
 
         ep_cfg = pj.EpConfig()
         ep_cfg.uaConfig.userAgent = self.cfg.get("user_agent", "pjsua2-py-client")
@@ -653,6 +656,8 @@ class VoipClient:
             self._cleanup()
 
     def _cleanup(self):
+        # Ensure the thread performing cleanup is registered with pjlib
+        self._register_current_thread()
         with self.pj_lock:
             try:
                 if self.active_call:
