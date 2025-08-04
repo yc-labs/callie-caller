@@ -352,6 +352,7 @@ class VoipClient:
         self.ep.libInit(ep_cfg)
 
         tcfg = pj.TransportConfig()
+        tcfg.port = int(os.getenv("SIP_PORT", 5060))
         pub = get_public_ip()
         if pub:
             tcfg.publicAddress = pub
