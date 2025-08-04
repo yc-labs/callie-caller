@@ -237,6 +237,8 @@ class VoipClient:
         self.pj_lock = threading.Lock()
         self._pj_thread = None
         self._ready_event = threading.Event()
+        # Event used to signal the background PJSUA2 thread to stop
+        self._stop_event = threading.Event()
 
         self.ep = None  # Will be created in _init_lib()
         self.acc = None
@@ -330,6 +332,7 @@ class VoipClient:
 
     def _init_lib(self):
         self._ready_event = threading.Event()
+        self._stop_event.clear()
         self._pj_thread = threading.Thread(target=self._run_pjsua)
         self._pj_thread.daemon = True
         self._pj_thread.start()
@@ -377,8 +380,17 @@ class VoipClient:
         else:
             logger.error("Registration failed")
 
-        while self.ep:
+        # Main event loop. Runs until stop is signaled.
+        while not self._stop_event.is_set():
             self.ep.libHandleEvents(20)
+
+        logger.info("Event loop exiting")
+        try:
+            if self.ep and self.ep.libGetState() < pj.PJSUA_STATE_CLOSING:
+                self.ep.libDestroy()
+        finally:
+            self.ep = None
+            logger.info("PJSUA2 stopped")
 
     def _register(self):
         doms = [self.cfg["primary_domain"]]
@@ -653,10 +665,9 @@ class VoipClient:
             except Exception:
                 pass
 
-            try:
-                if self.ep and self.ep.libGetState() < pj.PJSUA_STATE_CLOSING:
-                    logger.info("Shutting down...")
-                    self.ep.libDestroy()
-            finally:
-                self.ep = None
-                logger.info("Stopped")
+        # Signal the background thread to stop and wait for it to finish
+        self._stop_event.set()
+        if self._pj_thread:
+            self._pj_thread.join()
+            self._pj_thread = None
+        logger.info("Stopped")
