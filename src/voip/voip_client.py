@@ -264,8 +264,13 @@ class VoipClient:
         
     def _register_current_thread(self):
         """Register the current thread with pjsua2 if not already registered."""
-        if self.ep and not self.ep.libIsThreadRegistered():
-            self.ep.libRegisterThread(threading.current_thread().name)
+        if not self.ep:
+            return
+        try:
+            if not self.ep.libIsThreadRegistered():
+                self.ep.libRegisterThread(threading.current_thread().name)
+        except pj.Error as e:
+            logger.debug(f"Thread registration failed: {e.info()}")
 
     def enqueue_pcm(self, pcm_bytes: bytes, src_rate_hz: int):
         """
@@ -340,9 +345,6 @@ class VoipClient:
     def _run_pjsua(self):
         self.ep = pj.Endpoint()
         self.ep.libCreate()
-        # Ensure this worker thread is registered with pjlib before any other calls
-        if not self.ep.libIsThreadRegistered():
-            self.ep.libRegisterThread("pjsua-worker")
 
         ep_cfg = pj.EpConfig()
         ep_cfg.uaConfig.userAgent = self.cfg.get("user_agent", "pjsua2-py-client")
@@ -353,6 +355,10 @@ class VoipClient:
         ep_cfg.uaConfig.stunServer.append("stun.l.google.com:19302")
 
         self.ep.libInit(ep_cfg)
+
+        # Register this worker thread with pjlib after initialization
+        if not self.ep.libIsThreadRegistered():
+            self.ep.libRegisterThread("pjsua-worker")
 
         tcfg = pj.TransportConfig()
         tcfg.port = int(os.getenv("SIP_PORT", 5060))
