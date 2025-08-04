@@ -259,21 +259,28 @@ class GeminiVoipAdapter:
         then place the SIP call and block until it ends.
         """
         # Gemini -> SIP: set callback. AudioBridge will call this with 24k PCM by default.
+        last_ai_log = 0.0
+
         def sip_audio_callback(ai_pcm: bytes):
+            nonlocal last_ai_log
             if not ai_pcm:
                 return
-            logger.debug(f"sip_audio_callback called with {len(ai_pcm)} bytes")
-            
-            # Debug: Analyze the audio from Gemini
+            now = time.time()
+
+            # Debug: Analyze the audio from Gemini, but rate limit logs
             if len(ai_pcm) >= 100:
                 import struct
                 samples = struct.unpack(f'{50}h', ai_pcm[:100])  # First 50 samples
                 max_sample = max(abs(s) for s in samples)
                 avg_sample = sum(abs(s) for s in samples) / len(samples)
-                logger.debug(f"Gemini audio: max_sample={max_sample}, avg_sample={avg_sample:.1f}")
+                if now - last_ai_log >= 0.5:
+                    logger.info(
+                        f"AI->SIP audio level: max={max_sample}, avg={avg_sample:.1f}"
+                    )
+                    last_ai_log = now
                 if max_sample < 100:
-                    logger.warning("Gemini is sending silent audio!")
-            
+                    logger.warning("⚠️ AI is sending near-silent audio")
+
             try:
                 # Resample to the actual call rate inside voip.enqueue_pcm (adaptive)
                 self.voip.enqueue_pcm(ai_pcm, self.gem_out_rate)

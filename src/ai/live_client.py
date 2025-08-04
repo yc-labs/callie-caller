@@ -324,16 +324,19 @@ CONVERSATION GUIDELINES:
     async def _send_audio_to_ai(self) -> None:
         """Background task to send audio from SIP to AI with voice activity detection."""
         logger.info("📤 Audio-to-AI task started")
-        
+
         # Voice activity detection settings
         silence_threshold = 400  # Lowered threshold to detect speech more easily
         speech_duration = 0
         silence_duration = 0
         last_was_speech = False
         consecutive_silence_chunks = 0
-        
+
         # Track when user stops speaking to add natural pause
         user_stopped_speaking_time = None
+
+        # Rate limit audio-level logging
+        last_level_log = 0.0
         
         while self.running:
             try:
@@ -356,7 +359,9 @@ CONVERSATION GUIDELINES:
                             
                             if is_speech:
                                 if not self.has_heard_speech:
-                                    logger.info(f"🗣️  USER SPEAKING - Audio level: max={max_amplitude}, avg={avg_amplitude:.0f}")
+                                    logger.info(
+                                        f"🗣️  USER SPEAKING - Audio level: max={max_amplitude}, avg={avg_amplitude:.0f}"
+                                    )
                                     self.has_heard_speech = True
                                 self.last_speech_time = time.time()
                                 speech_duration += 0.02  # Assuming 20ms chunks
@@ -374,16 +379,25 @@ CONVERSATION GUIDELINES:
                                     await self.stop_conversation()
                                     break
 
-                                silence_duration += 0.02
-                                speech_duration = 0
-                            
+                            silence_duration += 0.02
+                            speech_duration = 0
+
+                            # Periodic audio level logging
+                            if time.time() - last_level_log >= 0.5:
+                                logger.info(
+                                    f"SIP->AI audio level: max={max_amplitude}, avg={avg_amplitude:.0f}"
+                                )
+                                last_level_log = time.time()
+
                             # Check for initial wait timeout
                             if not self.has_heard_speech and not self.ai_has_greeted:
                                 time_since_start = time.time() - self.silence_start_time
                                 if time_since_start > INITIAL_WAIT_SECONDS:
-                                    logger.info(f"⏰ {INITIAL_WAIT_SECONDS} second silence timeout - AI may greet now")
+                                    logger.info(
+                                        f"⏰ {INITIAL_WAIT_SECONDS} second silence timeout - AI may greet now"
+                                    )
                                     self.ai_has_greeted = True
-                            
+
                             last_was_speech = is_speech
                     except Exception as e:
                         logger.debug(f"Audio analysis error: {e}")

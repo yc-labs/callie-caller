@@ -264,8 +264,13 @@ class VoipClient:
         
     def _register_current_thread(self):
         """Register the current thread with pjsua2 if not already registered."""
-        if self.ep and not self.ep.libIsThreadRegistered():
-            self.ep.libRegisterThread(threading.current_thread().name)
+        if not self.ep:
+            return
+        try:
+            if not self.ep.libIsThreadRegistered():
+                self.ep.libRegisterThread(threading.current_thread().name)
+        except pj.Error as e:
+            logger.debug(f"Thread registration failed: {e.info()}")
 
     def enqueue_pcm(self, pcm_bytes: bytes, src_rate_hz: int):
         """
@@ -350,6 +355,10 @@ class VoipClient:
         ep_cfg.uaConfig.stunServer.append("stun.l.google.com:19302")
 
         self.ep.libInit(ep_cfg)
+
+        # Register this worker thread with pjlib after initialization
+        if not self.ep.libIsThreadRegistered():
+            self.ep.libRegisterThread("pjsua-worker")
 
         tcfg = pj.TransportConfig()
         tcfg.port = int(os.getenv("SIP_PORT", 5060))
@@ -438,10 +447,21 @@ class VoipClient:
 
     def hangup_call(self):
         """Hang up the active call."""
-        if self.active_call:
+        # Ensure this thread is registered with pjlib before calling into pjsua2
+        self._register_current_thread()
+
+        # Avoid races with cleanup or calls after libDestroy
+        if not self.ep or self.ep.libGetState() >= pj.PJSUA_STATE_CLOSING:
+            logger.debug("hangup_call: PJSUA not running, ignoring hangup request")
+            return
+
+        with self.pj_lock:
+            call = self.active_call
+            if not call:
+                return
             try:
                 logger.info("Hanging up call via tool")
-                self.active_call.hangup(pj.CallOpParam(True))
+                call.hangup(pj.CallOpParam(True))
             except pj.Error as e:
                 logger.error(f"Failed to hang up call: {e.info()}")
 
@@ -653,6 +673,8 @@ class VoipClient:
             self._cleanup()
 
     def _cleanup(self):
+        # Ensure the thread performing cleanup is registered with pjlib
+        self._register_current_thread()
         with self.pj_lock:
             try:
                 if self.active_call:
