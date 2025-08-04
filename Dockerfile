@@ -62,4 +62,4 @@ COPY api.py .
 ENV PYTHONPATH=/usr/src/app/pjproject-2.15.1/pjsip-apps/src/swig/python:/usr/src/app/src:$PYTHONPATH
 
 # Set the command that will run when the container starts
-CMD ["python3", "-u", "./main.py"]
+CMD ["python3", "-u", "./api.py"]

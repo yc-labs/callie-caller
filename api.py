@@ -98,7 +98,7 @@ async def make_call_async(request: CallRequest, background_tasks: BackgroundTask
     cfg = {
         'primary_domain': os.getenv("ZOHO_PRIMARY_DOMAIN"),
         'fallback_domain': os.getenv("ZOHO_FALLBACK_DOMAIN"),
-        'sip__user': os.getenv("ZOHO_SIP_USER"),
+        'sip_user': os.getenv("ZOHO_SIP_USER"),
         'sip_password': os.getenv("ZOHO_SIP_PASSWORD"),
         'user_agent': os.getenv("ZOHO_USER_AGENT", "Python PJSUA2")
     }
