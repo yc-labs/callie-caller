@@ -47,11 +47,12 @@ def make_call_sync(request: CallRequest):
     # In a real-world scenario, you would have a more robust way to manage call state.
     
     cfg = {
-        'primary_domain': os.getenv("ZOHO_PRIMARY_DOMAIN"),
-        'fallback_domain': os.getenv("ZOHO_FALLBACK_DOMAIN"),
+        'primary_domain': os.getenv("ZOHO_PRIMARY_DOMAIN", "us3-proxy2.zohovoice.com"),
+        'fallback_domain': os.getenv("ZOHO_FALLBACK_DOMAIN", "us4-proxy2.zohovoice.com"),
         'sip_user': os.getenv("ZOHO_SIP_USER"),
         'sip_password': os.getenv("ZOHO_SIP_PASSWORD"),
-        'user_agent': os.getenv("ZOHO_USER_AGENT", "Python PJSUA2")
+        'user_agent': f"Yealink SIP-T46S 66.85.0.5 ~{os.getenv('ZOHO_USER_AGENT_MAC', '00:1a:2b:3c:4d:6e')}"
+
     }
     
     voip_client = VoipClient(cfg, test_mode="tone", tone_seconds=0)
@@ -96,11 +97,12 @@ def run_call(adapter: GeminiVoipAdapter):
 async def make_call_async(request: CallRequest, background_tasks: BackgroundTasks):
     """Make a call asynchronously."""
     cfg = {
-        'primary_domain': os.getenv("ZOHO_PRIMARY_DOMAIN"),
-        'fallback_domain': os.getenv("ZOHO_FALLBACK_DOMAIN"),
+        'primary_domain': os.getenv("ZOHO_PRIMARY_DOMAIN", "us3-proxy2.zohovoice.com"),
+        'fallback_domain': os.getenv("ZOHO_FALLBACK_DOMAIN", "us4-proxy2.zohovoice.com"),
         'sip_user': os.getenv("ZOHO_SIP_USER"),
         'sip_password': os.getenv("ZOHO_SIP_PASSWORD"),
-        'user_agent': os.getenv("ZOHO_USER_AGENT", "Python PJSUA2")
+        'user_agent': f"Yealink SIP-T46S 66.85.0.5 ~{os.getenv('ZOHO_USER_AGENT_MAC', '00:1a:2b:3c:4d:6e')}"
+
     }
     
     voip_client = VoipClient(cfg, test_mode="tone", tone_seconds=0)
@@ -139,4 +141,5 @@ def get_call_status(conversation_id: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("FLASK_PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
